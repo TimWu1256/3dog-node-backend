@@ -68,6 +68,7 @@ jobs:
         env:
           IMAGE_TAG: sha-${{ github.sha }}
           GOOGLE_GENERATIVE_AI_API_KEY: "fake-google-ai-key-12345"
+          GOOGLE_API_KEY: "fake-google-ai-key-12345"
           OPENAI_API_KEY: "sk-fake-openai-key-abcde12345"
         run: |
           set -euo pipefail
