@@ -9,7 +9,7 @@ import { app, upgradeWebSocket } from "./server";
 import { realtimeHandler } from "./services/realtime/connection";
 import monitor from "./routers/monitor";
 import objectDesigner from "./routers/object-designer";
-export * as objg from "./services/workflows/object-move";
+export * as create3d from "./services/workflows/graphs/create3d";
 
 const log = debug("server");
 
