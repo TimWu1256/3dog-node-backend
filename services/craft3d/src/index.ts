@@ -7,7 +7,7 @@ import { createServer } from "./server.js";
 import { connect } from "./db/index.js";
 import { jobsRouter } from "./routers/jobs.js";
 import { renderRouter } from "./routers/render.js";
-import { createNodeServer } from "@hono/node-server";
+import { serve } from "@hono/node-server";
 
 const log = debug("craft3d");
 
@@ -33,7 +33,7 @@ async function main() {
   });
 
   const port = parseInt(process.env.PORT ?? "3601", 10);
-  createNodeServer({ fetch: app.fetch, port });
+  serve({ fetch: app.fetch, port });
   log("listening on port %d", port);
 }
 
