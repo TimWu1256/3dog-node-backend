@@ -1,7 +1,7 @@
 {
-  "name": "backend_server",
-  "version": "0.0.0",
-  "description": "...",
+  "name": "my-langgraph-project",
+  "private": true,
+  "workspaces": ["services/*"],
   "scripts": {
     "dev": "concurrently \"npm run dev:python\" \"npm run dev:services\"",
     "dev:services": "concurrently \"npm run dev --workspace=@my-project/api-gateway\" \"npm run dev --workspace=@my-project/agent-webhook\"",
@@ -10,10 +10,7 @@
     "test": "npm run test --workspaces",
     "lint": "npm run lint --workspaces"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "devDependencies": {
-    "concurrently": "^9.2.1"
+    "concurrently": "^8.2.2"
   }
 }
