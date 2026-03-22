@@ -1,136 +1,111 @@
 # 3DOG (3D Object Generation) Node Backend
 
-本伺服器提供 **基於 LLM 的 3D 物件生成服務** 與 **DSS（dead simple signalling）服務**。
+**LLM 驅動的 3D 物件生成服務**，包含：
+
+| 服務 | 埠號 | 說明 | 必要 |
+|------|------|------|------|
+| **agents** (LangGraph) | `3600` | Python agent 圖，透過 langgraph-cli 啟動 | ✅ |
+| **craft3d** (Node.js) | `3601` | Three.js 渲染服務，程式碼 → GLB + PNG | ✅ |
+| **realtime-demo** (Node.js) | `3681` | OpenAI Realtime API 示範（僅本地開發用）| — |
 
 ## 技術與工具
 
-- Node.js
-- TypeScript
-- Playwright（瀏覽器環境／自動化依賴）
+- Node.js 24 / TypeScript / Hono
+- Python 3.13 / LangGraph / uv
+- Playwright（headless Chromium）
+- Docker（單一容器同時啟動所有必要服務）
 
-## 環境變數（機密）設定
+## 環境變數
 
-請將 `.env` 放在專案根目錄。若使用容器部署，Docker 在建置映像檔時會忽略 `.env`。容器啟動時，從啟動容器的環境動態載入；映像檔與容器內皆不會包含 `.env` 檔案。
+請將 `.env` 放在專案根目錄。容器部署時，從啟動容器的環境動態載入；映像檔內不包含 `.env` 檔案。
 
-### 必要環境變數
+| 變數 | 說明 |
+|------|------|
+| `GOOGLE_API_KEY` | Google Gemini API 金鑰（agents 使用） |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | 同上（部分套件的替代變數名稱） |
+| `OPENAI_API_KEY` | OpenAI API 金鑰（realtime-demo 使用） |
 
-- `GOOGLE_GENERATIVE_AI_API_KEY`（必填）
-  - Google Generative AI 的 API 金鑰
-- `PORT`（選填，僅非容器環境）
-  - 指定服務綁定的單一埠號
-- `PORTS`（選填，僅非容器環境）
-  - 指定多個埠號，以逗號分隔，例如：`3000,3001,3002`
+## 快速開始（本地開發）
 
-## 指令
-
-### 安裝
-
-安裝開發環境所需依賴（包含開發用套件）：
+### craft3d
 
 ```bash
-npm run deps:dev
+cd services/craft3d
+npm install       # 同時安裝 Playwright Chromium
+npm run dev       # 監聽 port 3601
 ```
 
-在 multi-stage 的 runtime 階段，若僅需執行已編譯的 JavaScript，安裝正式環境依賴即可：
+### agents
 
 ```bash
-npm run deps:prod
+cd packages/agents
+uv sync
+uv run langgraph dev --host 0.0.0.0 --port 3600 --no-browser
 ```
 
-### 建置（Build）
-
-將 TypeScript 專案編譯為 JavaScript，供後續以編譯結果執行：
+### realtime-demo（選用）
 
 ```bash
-npm run build
+cd services/realtime-demo
+npm install
+npm run dev       # 監聽 port 3681
 ```
 
-### 啟動（Production）
-
-伺服器預設監聽 3609 埠號 (port)。提供兩種方式：
-
-**方法一：先建置（build）後再啟動**
-
-```bash
-npm start
-```
-
-**方法二：直接以 TypeScript 啟動**
-
-```bash
-npm run start:ts
-```
-
-### 啟動（Development）
-
-開發模式下，當 `ts`、`js` 或 `json` 檔案變更時，伺服器會自動重新啟動：
-
-```bash
-npm run dev
-```
-
-### 測試
-
-使用 Jest 執行測試，會自動執行所有符合 `**/*.test.ts` 或 `**/*.test.js` 命名規則的測試檔案：
+## 測試（craft3d）
 
 ```bash
 npm test
+# 等同於 cd services/craft3d && npm test
 ```
 
 ## Docker 容器部署
 
-Docker 提供兩種方式：**自行建置 (build)** 與 **拉取雲端映像 (GHCR)** 。建議使用 GHCR 映像以簡化部署流程。
+單一容器同時運行 **agents**（port 3600）與 **craft3d**（port 3601）。
+
+Docker 提供兩種方式：**自行建置** 與 **拉取 GHCR 雲端映像**。
 
 ### 方式一：自行建置（build）
 
-> 相關指令皆已封裝成 npm scripts，預設使用 `docker-compose.yml`。
-
-建立映像（build）：
-
 ```bash
-npm run docker:build
+npm run docker:build   # 建置映像
+npm run docker:up      # 啟動（-d 背景）
+npm run docker:logs    # 查看 logs
+npm run docker:down    # 停止並移除
 ```
 
-啟動（up）：
+### 方式二：拉取 GHCR 映像（免 clone 專案）
+
+在任意空資料夾中，下載 compose 檔並放置 `.env`：
 
 ```bash
-npm run docker:up
+curl -L https://github.com/cch137/3dog-node-backend/raw/master/infra/docker-compose.ghcr.yml -o docker-compose.yml
 ```
-
-其它指令：
 
 ```bash
-npm run docker:down   # 停止 / 移除（down）
-npm run docker:stop   # 只停止、不移除容器（stop）
-npm run docker:ps     # 查看狀態（ps）
-npm run docker:logs   # 查看 logs（follow）
+npm run docker:ghcr:up:pull   # 拉取最新映像並啟動
+npm run docker:ghcr:logs      # 查看 logs
+npm run docker:ghcr:down      # 停止並移除
 ```
 
-### 方式二：拉取雲端映像（GHCR，免 clone 專案）
-
-不需要 clone 本專案；在要放置部署檔案的資料夾中（任意空資料夾即可）執行以下指令下載 `docker-compose.yml`，並將 `.env` 放在同一個資料夾內：
-
-```bash
-curl -L https://github.com/cch137/3dog-node-backend/raw/master/docker-compose.ghcr.yml -o docker-compose.yml
-```
-
-下載 / 更新映像：
+或直接用 docker compose：
 
 ```bash
 docker compose pull
-```
-
-啟動（up）：
-
-```bash
 docker compose up -d
 ```
 
-其它指令：
+### 健康檢查
 
 ```bash
-docker compose down   # 停止 / 移除（down）
-docker compose stop   # 只停止、不移除容器（stop）
-docker compose ps     # 查看狀態（ps）
-docker compose logs   # 查看 logs（follow）
+curl http://localhost:3601/healthz
+# {"status":"ok","uptime":...}
 ```
+
+## 容器啟動順序
+
+`docker-entrypoint.sh` 會：
+1. 確認無 `.env` / `*.key` 機密檔案
+2. 確認 craft3d 的 `node_modules` 與 `dist` 存在
+3. 背景啟動 LangGraph agents（port 3600）
+4. 背景啟動 craft3d（port 3601）
+5. 若任一服務異常退出，立即關閉容器

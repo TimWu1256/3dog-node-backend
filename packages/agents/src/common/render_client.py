@@ -1,19 +1,19 @@
 """
-HTTP client for the Node.js /render-glb service.
+HTTP client for the craft3d POST /render endpoint.
 
-Request  (CBOR):  { code: str, timeoutMs: int }
-Response (CBOR):  { success: True,  glb: bytes, snapshot: bytes }
+Request  (JSON):  { code: str, timeoutSec: int }
+Response (JSON):  { success: True,  job_id: str, glb: str (base64), snapshot: str (base64) }
                |  { success: False, error: str }
 """
 
+import base64
 import os
 from dataclasses import dataclass
 
-import cbor2
 import httpx
 
-_DEFAULT_RENDER_GLB_URL = os.environ.get(
-    "RENDER_GLB_URL", "http://localhost:3609/render-glb"
+_DEFAULT_RENDER_URL = os.environ.get(
+    "RENDER_GLB_URL", "http://localhost:3601/render"
 )
 
 
@@ -30,26 +30,26 @@ class RenderGlbError(RuntimeError):
 async def render_glb(
     code: str,
     *,
-    timeout_ms: int = 10_000,
-    url: str = _DEFAULT_RENDER_GLB_URL,
+    timeout_ms: int = 60_000,
+    url: str = _DEFAULT_RENDER_URL,
 ) -> RenderGlbResult:
-    payload = cbor2.dumps({"code": code, "timeoutMs": timeout_ms})
+    timeout_sec = max(1, min(120, timeout_ms // 1000))
+    payload = {"code": code, "timeoutSec": timeout_sec}
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
             url,
-            content=payload,
-            headers={"Content-Type": "application/cbor"},
-            timeout=timeout_ms / 1000 + 5,  # HTTP timeout slightly above job timeout
+            json=payload,
+            timeout=timeout_sec + 10,  # HTTP timeout slightly above job timeout
         )
         response.raise_for_status()
 
-    result: dict = cbor2.loads(response.content)
+    result: dict = response.json()
 
     if not result.get("success"):
         raise RenderGlbError(result.get("error", "Unknown render error"))
 
     return RenderGlbResult(
-        glb=bytes(result["glb"]),
-        snapshot=bytes(result["snapshot"]),
+        glb=base64.b64decode(result["glb"]),
+        snapshot=base64.b64decode(result["snapshot"]),
     )

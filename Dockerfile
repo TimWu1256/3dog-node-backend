@@ -1,41 +1,60 @@
 # syntax=docker/dockerfile:1
 
-# Build stage: install all deps (including devDeps) and compile the app
-FROM node:24.13.0-bookworm-slim AS build
-WORKDIR /usr/src/app
+# ── Stage 1: Build craft3d (Node.js) ─────────────────────────────────────────
+FROM node:24.13.0-bookworm-slim AS node-build
+WORKDIR /build/services/craft3d
 
-# Copy only manifests first to leverage Docker layer caching
-COPY package*.json ./
-# Use a clean, reproducible install based on the lockfile
-RUN npm run deps:dev
+# Copy manifests and install all deps (skip postinstall to avoid downloading Chromium in build stage)
+COPY services/craft3d/package*.json ./
+RUN npm ci --ignore-scripts
 
-# Copy source code and build
-COPY . .
-# Ensure entrypoint is executable
-RUN chmod +x /usr/src/app/bin/docker-entrypoint.sh
-# Compile/transpile/bundle into the output folder (e.g., dist/)
+# Copy source and build
+COPY services/craft3d/ .
 RUN npm run build
 
 
-# Runtime stage: keep the image small (only prod deps + build output)
-FROM node:24.13.0-bookworm-slim AS runtime
-WORKDIR /usr/src/app
+# ── Stage 2: Runtime (Python 3.13 + Node.js 24) ──────────────────────────────
+FROM python:3.13-slim-bookworm AS runtime
 
-# Runtime defaults
+# Install Node.js 24 LTS
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── craft3d (Node.js service on port 3601) ────────────────────────────────────
 ENV NODE_ENV=production
-ENV PORT=3609
 
-# Install production-only dependencies
-COPY package*.json ./
-RUN npm run deps:prod
+WORKDIR /app/services/craft3d
+COPY services/craft3d/package*.json ./
 
-# Copy only what is needed to run
-COPY --from=build /usr/src/app/bin ./bin
-COPY --from=build /usr/src/app/dist ./dist
-COPY --from=build /usr/src/app/public ./public
+# Install prod deps; postinstall runs "playwright install --with-deps chromium"
+RUN npm ci --omit=dev
 
-EXPOSE 3609
+# Copy compiled output from build stage (includes SQL files, browser assets via build:assets)
+COPY --from=node-build /build/services/craft3d/dist ./dist
 
-# Use an absolute path for reliability
-ENTRYPOINT ["/usr/src/app/bin/docker-entrypoint.sh"]
-CMD ["npm", "start"]
+# ── agents (Python/LangGraph service on port 3600) ────────────────────────────
+# Install uv and langgraph-cli
+RUN pip install --no-cache-dir uv
+
+WORKDIR /app/packages/agents
+COPY packages/agents/pyproject.toml packages/agents/uv.lock ./
+
+# Install Python dependencies into the project venv
+RUN uv sync --frozen --no-dev
+
+# Install langgraph-cli into the same venv so "uv run langgraph" works
+RUN uv pip install langgraph-cli
+
+# Copy agent source (graphs, instructions, etc.)
+COPY packages/agents/ ./
+
+# ── Entrypoint ────────────────────────────────────────────────────────────────
+COPY bin/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+EXPOSE 3600 3601
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

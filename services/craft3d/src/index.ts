@@ -1,35 +1,15 @@
-import { config as dotenv } from "dotenv";
-
-dotenv();
+import "dotenv/config";
 
 if (!process.env.DEBUG) process.env.DEBUG = "*,-pw:*";
 
 import debug from "debug";
-import { app, upgradeWebSocket } from "./server";
-import { realtimeHandler } from "./services/realtime/connection";
-import monitor from "./routers/monitor";
-import objectDesigner from "./routers/object-designer";
-export * as create3d from "./services/workflows/graphs/create3d";
+import { createServer } from "./server.js";
+import { connect } from "./db/index.js";
+import { jobsRouter } from "./routers/jobs.js";
+import { renderRouter } from "./routers/render.js";
+import { createNodeServer } from "@hono/node-server";
 
-const log = debug("server");
-
-app.route("/monitor/", monitor);
-app.route("/obj-dsgn/", objectDesigner);
-
-app.get("/healthz", (c) => {
-  return c.json({ status: "OK" });
-});
-
-app.get("/", (c) => {
-  return c.redirect("/monitor");
-});
-
-app.get("/mr-realtime", upgradeWebSocket(realtimeHandler));
-
-app.onError((err, c) => {
-  log("app error:", err);
-  return c.text("Service Unavailable", 503);
-});
+const log = debug("craft3d");
 
 process.on("uncaughtException", (error) => {
   log("uncaughtException:", error);
@@ -39,4 +19,25 @@ process.on("unhandledRejection", (error) => {
   log("unhandledRejection:", error);
 });
 
-export default app;
+async function main() {
+  const db = await connect();
+  const app = createServer();
+
+  app.get("/healthz", (c) => c.json({ status: "ok", uptime: process.uptime() }));
+  app.route("/jobs", jobsRouter(db));
+  app.route("/render", renderRouter(db));
+
+  app.onError((err, c) => {
+    log("app error:", err);
+    return c.text("Service Unavailable", 503);
+  });
+
+  const port = parseInt(process.env.PORT ?? "3601", 10);
+  createNodeServer({ fetch: app.fetch, port });
+  log("listening on port %d", port);
+}
+
+main().catch((err) => {
+  console.error("Fatal:", err);
+  process.exit(1);
+});

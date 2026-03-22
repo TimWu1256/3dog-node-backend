@@ -13,6 +13,9 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/craft3d
     steps:
       - uses: actions/checkout@v4
 
@@ -20,6 +23,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: services/craft3d/package-lock.json
 
       - run: npm run deps:dev
       - run: npm test

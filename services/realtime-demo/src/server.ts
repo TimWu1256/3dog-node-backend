@@ -183,7 +183,7 @@ app.use(
 
 // ── Start server ────────────────────────────────────────────────────────────
 
-const PORT = parseInt(process.env.PORT ?? "3610", 10);
+const PORT = parseInt(process.env.PORT ?? "3681", 10);
 const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
   log(`online → http://localhost:${info.port}`);
 });

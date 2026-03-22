@@ -44,7 +44,7 @@ OPENAI_API_KEY=sk-...
 
 # Optional — defaults shown below
 OPENAI_REALTIME_MODEL=gpt-4o-mini-realtime-preview
-PORT=3610
+PORT=3681
 ```
 
 ### Run
@@ -61,7 +61,7 @@ npm start
 npm run start:ts
 ```
 
-Open `http://localhost:3610` in your browser.
+Open `http://localhost:3681` in your browser.
 
 ## Usage
 

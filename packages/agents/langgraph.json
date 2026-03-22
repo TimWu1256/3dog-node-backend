@@ -1,5 +1,7 @@
 {
+  "dependencies": ["."],
   "graphs": {
     "craft3d": "agents.src.graphs.craft3d.graph:craft3d_agent"
-  }
+  },
+  "env": ".env"
 }

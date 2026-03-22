@@ -4,14 +4,15 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      PORT: 3609
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
     env_file:
       - path: .env
         required: false
     ports:
-      - "3609:3609"
+      - "3600:3600"
+      - "3601:3601"
     networks:
       - 3dog-node-backend-net
 

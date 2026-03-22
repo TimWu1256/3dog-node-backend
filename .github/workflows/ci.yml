@@ -51,13 +51,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-
-      - run: npm run deps:dev
-
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -67,15 +60,15 @@ jobs:
       - name: Pull + up (GHCR) + /healthz check
         env:
           IMAGE_TAG: sha-${{ github.sha }}
-          GOOGLE_GENERATIVE_AI_API_KEY: "fake-google-ai-key-12345"
           GOOGLE_API_KEY: "fake-google-ai-key-12345"
+          GOOGLE_GENERATIVE_AI_API_KEY: "fake-google-ai-key-12345"
           OPENAI_API_KEY: "sk-fake-openai-key-abcde12345"
         run: |
           set -euo pipefail
           npm run docker:ghcr:down || true
           npm run docker:ghcr:up:pull
           for i in {1..30}; do
-            if curl -fsS --max-time 2 http://localhost:3609/healthz >/dev/null; then
+            if curl -fsS --max-time 2 http://localhost:3601/healthz >/dev/null; then
               echo "healthz OK"
               exit 0
             fi
