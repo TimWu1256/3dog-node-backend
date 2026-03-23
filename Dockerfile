@@ -39,6 +39,9 @@ COPY --from=node-build /build/services/craft3d/dist ./dist
 # Install uv and langgraph-cli
 RUN pip install --no-cache-dir uv
 
+# Make /app/packages importable so `import agents` resolves to /app/packages/agents/
+ENV PYTHONPATH=/app/packages
+
 WORKDIR /app/packages/agents
 COPY packages/agents/pyproject.toml packages/agents/uv.lock ./
 
