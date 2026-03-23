@@ -1,0 +1,8 @@
+# Normalize line endings
+* text=auto
+
+# Shell scripts must always use LF
+*.sh text eol=lf
+
+# Dockerfiles must always use LF
+Dockerfile text eol=lf

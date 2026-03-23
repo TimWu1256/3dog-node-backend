@@ -54,6 +54,10 @@ RUN uv pip install "langgraph-cli[inmem]"
 # Copy agent source (graphs, instructions, etc.)
 COPY packages/agents/ ./
 
+# Copy instruction templates into the agents package dir and point the loader at it
+COPY instructions/ ./instructions/
+ENV INSTRUCTIONS_DIR=/app/packages/agents/instructions
+
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 COPY bin/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh

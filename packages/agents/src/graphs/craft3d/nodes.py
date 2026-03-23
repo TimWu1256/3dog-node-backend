@@ -37,18 +37,31 @@ _render_review_prompt = load_instructions_template("craft3d-review")
 _render_revise_prompt = load_instructions_template("craft3d-revise")
 
 # ---------------------------------------------------------------------------
-# LLM clients
+# LLM clients (lazy-initialized to defer API key validation until first use)
 # ---------------------------------------------------------------------------
 
-_craft_model = ChatGoogleGenerativeAI(
-    model="gemini-3.1-pro-preview",
-    thinking_config={"thinking_level": "LOW"},  # type: ignore[call-arg]
-)
+_craft_model: ChatGoogleGenerativeAI | None = None
+_review_model: ChatGoogleGenerativeAI | None = None
 
-_review_model = ChatGoogleGenerativeAI(
-    model="gemini-3.1-pro-preview",
-    thinking_config={"thinking_level": "LOW"},  # type: ignore[call-arg]
-)
+
+def _get_craft_model() -> ChatGoogleGenerativeAI:
+    global _craft_model
+    if _craft_model is None:
+        _craft_model = ChatGoogleGenerativeAI(
+            model="gemini-3.1-pro-preview",
+            thinking_config={"thinking_level": "LOW"},  # type: ignore[call-arg]
+        )
+    return _craft_model
+
+
+def _get_review_model() -> ChatGoogleGenerativeAI:
+    global _review_model
+    if _review_model is None:
+        _review_model = ChatGoogleGenerativeAI(
+            model="gemini-3.1-pro-preview",
+            thinking_config={"thinking_level": "LOW"},  # type: ignore[call-arg]
+        )
+    return _review_model
 
 # ---------------------------------------------------------------------------
 # Debug persistence
@@ -91,7 +104,7 @@ async def _create_artifact(
             {"type": "text", "text": _render_generation_prompt(input.model_dump())},
             *additional_content,
         ]
-        response = await _craft_model.ainvoke([HumanMessage(content=content)])
+        response = await _get_craft_model().ainvoke([HumanMessage(content=content)])
         raw: str = response.content if isinstance(response.content, str) else ""
         code = extract_code_from_markdown(raw)
         return Artifact(
@@ -143,7 +156,7 @@ async def _review_artifact(artifact: Artifact) -> Artifact:
     b64 = base64.b64encode(artifact.snapshot).decode()
     data_uri = f"data:image/png;base64,{b64}"
 
-    response = await _review_model.ainvoke([
+    response = await _get_review_model().ainvoke([
         HumanMessage(content=[
             {"type": "text", "text": _render_review_prompt(artifact.input.model_dump())},
             {"type": "image_url", "image_url": {"url": data_uri}},
