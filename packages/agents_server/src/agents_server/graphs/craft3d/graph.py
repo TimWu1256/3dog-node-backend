@@ -9,15 +9,15 @@ from typing import cast
 
 from langgraph.graph import END, START, StateGraph
 
-from agents.src.common.schemas import ObjectProps
-from agents.src.graphs.craft3d.edges import review_router
-from agents.src.graphs.craft3d.nodes import (
+from agents_server.common.schemas import ObjectProps
+from agents_server.graphs.craft3d.edges import review_router
+from agents_server.graphs.craft3d.nodes import (
     craft_node,
     render_node,
     review_node,
     revise_node,
 )
-from agents.src.graphs.craft3d.state import Craft3DState, get_current_artifact
+from agents_server.graphs.craft3d.state import Craft3DState, get_current_artifact
 
 log = logging.getLogger("graphs.craft3d")
 

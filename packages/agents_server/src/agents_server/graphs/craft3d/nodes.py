@@ -15,10 +15,10 @@ from typing import Any
 from langchain_core.messages import HumanMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from agents.src.common.instructions import load_instructions_template
-from agents.src.common.render_client import RenderGlbError, render_glb
-from agents.src.common.utils import extract_code_from_markdown, stringify_error
-from agents.src.graphs.craft3d.state import (
+from agents_server.common.instructions import load_instructions_template
+from agents_server.common.render_client import RenderGlbError, render_glb
+from agents_server.common.utils import extract_code_from_markdown, stringify_error
+from agents_server.graphs.craft3d.state import (
     Artifact,
     Craft3DState,
     Review,

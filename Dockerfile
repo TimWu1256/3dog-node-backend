@@ -39,24 +39,24 @@ COPY --from=node-build /build/services/craft3d/dist ./dist
 # Install uv and langgraph-cli
 RUN pip install --no-cache-dir uv
 
-# Make /app/packages importable so `import agents` resolves to /app/packages/agents/
-ENV PYTHONPATH=/app/packages
+# Make agents_server importable: src/agents_server/ is the actual package
+ENV PYTHONPATH=/app/packages/agents_server/src
 
-WORKDIR /app/packages/agents
-COPY packages/agents/pyproject.toml packages/agents/uv.lock ./
+WORKDIR /app/packages/agents_server
+COPY packages/agents_server/pyproject.toml packages/agents_server/uv.lock ./
 
-# Install Python dependencies into the project venv
-RUN uv sync --frozen --no-dev
+# Install Python dependencies into the project venv (skip project itself — source not copied yet)
+RUN uv sync --frozen --no-dev --no-install-project
 
 # Install langgraph-cli into the same venv so "uv run langgraph" works
 RUN uv pip install "langgraph-cli[inmem]"
 
 # Copy agent source (graphs, instructions, etc.)
-COPY packages/agents/ ./
+COPY packages/agents_server/ ./
 
 # Copy instruction templates into the agents package dir and point the loader at it
 COPY instructions/ ./instructions/
-ENV INSTRUCTIONS_DIR=/app/packages/agents/instructions
+ENV INSTRUCTIONS_DIR=/app/packages/agents_server/instructions
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 COPY bin/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

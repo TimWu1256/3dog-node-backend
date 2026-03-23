@@ -23,7 +23,7 @@ fi
 
 # 1. LangGraph agents on port 3600 (mandatory)
 echo "[entrypoint] Starting LangGraph agents on port 3600..."
-cd /app/packages/agents
+cd /app/packages/agents_server
 uv run langgraph dev --host 0.0.0.0 --port 3600 --no-browser &
 AGENTS_PID=$!
 

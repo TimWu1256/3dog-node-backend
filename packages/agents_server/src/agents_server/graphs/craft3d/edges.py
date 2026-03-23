@@ -4,7 +4,7 @@ Conditional edge routers for the craft3d graph.
 
 from langgraph.graph import END
 
-from agents.src.graphs.craft3d.state import Craft3DState, get_current_artifact
+from agents_server.graphs.craft3d.state import Craft3DState, get_current_artifact
 
 MAX_REVISES = 5
 

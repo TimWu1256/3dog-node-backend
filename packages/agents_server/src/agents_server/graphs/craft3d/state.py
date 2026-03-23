@@ -9,7 +9,7 @@ from typing import Annotated, Optional
 
 from typing_extensions import TypedDict
 
-from agents.src.common.schemas import ObjectProps
+from agents_server.common.schemas import ObjectProps
 
 
 # ---------------------------------------------------------------------------

@@ -1,8 +1,8 @@
 import asyncio
 import logging
 
-from agents.src.graphs.craft3d import invoke_craft3d_agent
-from agents.src.common.schemas import ObjectProps
+from agents_server.graphs.craft3d import invoke_craft3d_agent
+from agents_server.common.schemas import ObjectProps
 
 async def main():
     logging.basicConfig(level=logging.DEBUG)

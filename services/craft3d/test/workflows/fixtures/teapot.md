@@ -1,7 +1,4 @@
 ```javascript
-import * as THREE from "three";
-import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
-
 // Setup Scene
 const scene = new THREE.Scene();
 
@@ -86,12 +83,6 @@ const spoutCurve = new THREE.QuadraticBezierCurve3(
   new THREE.Vector3(1.3, 0.7, 0)
 );
 const spoutGeom = new THREE.TubeGeometry(spoutCurve, 20, 0.12, 12, false);
-// Taper the spout manually
-const spoutPos = spoutGeom.attributes.position;
-for (let i = 0; i < spoutPos.count; i++) {
-  const z = spoutPos.getZ(i); // In TubeGeometry, the path runs along X/Y usually, but we check indices
-  // TubeGeometry vertices are organized in rings
-}
 applyGlazeColors(spoutGeom, TIANQING_BASE, TIANQING_LIGHT);
 const spout = new THREE.Mesh(spoutGeom, teapotMaterial);
 scene.add(spout);
@@ -115,21 +106,6 @@ const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
 directionalLight.position.set(5, 10, 7.5);
 scene.add(directionalLight);
 
-// Final Export
-const exporter = new GLTFExporter();
-exporter.parse(
-  scene,
-  (result) => {
-    if (result instanceof ArrayBuffer) {
-      EXPORT_GLB(result);
-    } else {
-      // If for some reason it's a JSON object (though binary: true is set)
-      EXPORT_GLB(result);
-    }
-  },
-  (err) => {
-    EXPORT_ERROR(err);
-  },
-  { binary: true }
-);
+// Export the scene via the sandbox API
+__export(scene);
 ```

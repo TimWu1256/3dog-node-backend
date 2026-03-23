@@ -14,7 +14,7 @@ from typing import Callable
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 _DEFAULT_INSTRUCTIONS_DIR = (
-    Path(__file__).resolve().parents[3] / "instructions"
+    Path(__file__).resolve().parents[5] / "instructions"
 )
 
 def _get_env() -> Environment:

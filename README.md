@@ -38,7 +38,7 @@ npm run dev       # 監聽 port 3601
 ### agents
 
 ```bash
-cd packages/agents
+cd packages/agents_server
 uv sync
 uv run langgraph dev --host 0.0.0.0 --port 3600 --no-browser
 ```

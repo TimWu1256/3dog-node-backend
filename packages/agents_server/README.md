@@ -67,13 +67,13 @@ Each iteration produces an `Artifact` with:
 
 - Python ≥ 3.13
 - [uv](https://docs.astral.sh/uv/) package manager
-- [craft3d](../../services/craft3d) service running on port `3609`
+- [craft3d](../../services/craft3d) service running on port `3601`
 - `GOOGLE_API_KEY` set in `.env`
 
 ### Install
 
 ```bash
-cd packages/agents
+cd packages/agents_server
 uv sync
 ```
 
@@ -84,8 +84,8 @@ Create a `.env` file:
 ```env
 GOOGLE_API_KEY=your-google-api-key
 
-# Optional: override craft3d render endpoint (default: http://localhost:3609/render)
-RENDER_GLB_URL=http://localhost:3609/render
+# Optional: override craft3d render endpoint (default: http://localhost:3601/render)
+RENDER_GLB_URL=http://localhost:3601/render
 
 # Optional: LangSmith tracing
 LANGCHAIN_TRACING_V2=true

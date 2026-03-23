@@ -18,7 +18,26 @@ afterAll(async () => {
 
 // ─── executeCodeToGlb ─────────────────────────────────────────────────────────
 
+// Extract fenced code block from a markdown fixture file
+function extractCodeFromMarkdown(md: string): string {
+  const match = md.match(/^```(?:javascript|js)?\n([\s\S]*?)^```/m);
+  if (!match) throw new Error("No fenced code block found in markdown fixture");
+  return match[1];
+}
+
 describe("executeCodeToGlb", () => {
+  it("executes the teapot fixture code and returns a valid GLB buffer", async () => {
+    const mdPath = path.resolve(__dirname, "../workflows/fixtures/teapot.md");
+    const md = fs.readFileSync(mdPath, "utf-8");
+    const code = extractCodeFromMarkdown(md);
+
+    const result = await executeCodeToGlb({ code });
+
+    expect(Buffer.isBuffer(result.glb)).toBe(true);
+    expect(result.glb.slice(0, 4).toString("ascii")).toBe("glTF");
+    expect(result.glb.length).toBeGreaterThan(1000);
+  });
+
   it("executes a simple box mesh and returns a non-empty GLB buffer", async () => {
     const code = `
       const geometry = new THREE.BoxGeometry(1, 1, 1);
