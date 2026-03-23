@@ -46,7 +46,7 @@ COPY packages/agents/pyproject.toml packages/agents/uv.lock ./
 RUN uv sync --frozen --no-dev
 
 # Install langgraph-cli into the same venv so "uv run langgraph" works
-RUN uv pip install langgraph-cli
+RUN uv pip install "langgraph-cli[inmem]"
 
 # Copy agent source (graphs, instructions, etc.)
 COPY packages/agents/ ./
