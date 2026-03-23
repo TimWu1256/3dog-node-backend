@@ -3,6 +3,8 @@
  *
  * These tests launch a real Chromium browser and exercise the actual rendering
  * pipeline.  They are slow by design — expect 15-30 s per test.
+ *
+ * Artifacts are saved to test/artifacts/workflows/ for visual inspection.
  */
 
 import fs from "fs";
@@ -10,6 +12,14 @@ import path from "path";
 import { executeCodeToGlb } from "../../src/renderer/execute-code";
 import { renderGlbToSnapshotGrid, createImageGrid } from "../../src/renderer/render-snapshots";
 import { destroyBrowser } from "../../src/renderer/browser";
+
+const ARTIFACTS_DIR = path.resolve(__dirname, "../artifacts/workflows");
+
+function saveArtifact(relPath: string, data: Buffer): void {
+  const fullPath = path.join(ARTIFACTS_DIR, relPath);
+  fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+  fs.writeFileSync(fullPath, data);
+}
 
 // Close the shared browser after all tests finish
 afterAll(async () => {
@@ -36,6 +46,8 @@ describe("executeCodeToGlb", () => {
     expect(Buffer.isBuffer(result.glb)).toBe(true);
     expect(result.glb.slice(0, 4).toString("ascii")).toBe("glTF");
     expect(result.glb.length).toBeGreaterThan(1000);
+
+    saveArtifact("object-designer/teapot.glb", result.glb);
   });
 
   it("executes a simple box mesh and returns a non-empty GLB buffer", async () => {
@@ -132,28 +144,27 @@ describe("renderGlbToSnapshotGrid", () => {
     expect(result[1]).toBe(0x50); // 'P'
     expect(result[2]).toBe(0x4e); // 'N'
     expect(result[3]).toBe(0x47); // 'G'
+
+    saveArtifact("render-glb-snapshots/teapot-grid.png", result);
   });
 
-  it("renders a box mesh GLB (from executeCodeToGlb) to a snapshot grid", async () => {
-    const { glb } = await executeCodeToGlb({
-      code: `
-        const mesh = new THREE.Mesh(
-          new THREE.BoxGeometry(1, 1, 1),
-          new THREE.MeshStandardMaterial({ color: 0x00ff00 })
-        );
-        __export(mesh);
-      `,
-    });
+  it("renders a teapot GLB (from executeCodeToGlb) to a snapshot grid", async () => {
+    const mdPath = path.resolve(__dirname, "../workflows/fixtures/teapot.md");
+    const md = fs.readFileSync(mdPath, "utf-8");
+    const code = extractCodeFromMarkdown(md);
+    const { glb } = await executeCodeToGlb({ code });
 
-    const snapshot = await renderGlbToSnapshotGrid(glb, { views: [{ polar: Math.PI / 2, azimuth: 0 }] });
+    const snapshot = await renderGlbToSnapshotGrid(glb);
     expect(Buffer.isBuffer(snapshot)).toBe(true);
     expect(snapshot[0]).toBe(0x89); // PNG magic
+
+    saveArtifact("render-glb-snapshots/teapot-from-code-grid.png", snapshot);
   });
 
-  it("accepts custom views with fewer angles", async () => {
+  it("accepts custom views with fewer angles (sphere)", async () => {
     const { glb } = await executeCodeToGlb({
       code: `
-        __export(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()));
+        __export(new THREE.Mesh(new THREE.SphereGeometry(1, 32, 32), new THREE.MeshStandardMaterial({ color: 0x4488ff })));
       `,
     });
 
@@ -166,6 +177,8 @@ describe("renderGlbToSnapshotGrid", () => {
     });
 
     expect(snapshot.length).toBeGreaterThan(0);
+
+    saveArtifact("render-glb-snapshots/sphere-grid.png", snapshot);
   });
 });
 
