@@ -1,5 +1,5 @@
 {
-  "name": "@3dog/realtime-demo",
+  "name": "@3dog/realtime-monitor",
   "version": "0.0.0",
   "description": "OpenAI Realtime API demo — visualizes all events in real-time",
   "main": "src/index.ts",

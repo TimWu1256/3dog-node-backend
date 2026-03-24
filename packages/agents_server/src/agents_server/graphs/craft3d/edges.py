@@ -6,7 +6,7 @@ from langgraph.graph import END
 
 from agents_server.graphs.craft3d.state import Craft3DState, get_current_artifact
 
-MAX_REVISES = 5
+MAX_REVISES = 2
 
 
 def review_router(state: Craft3DState) -> str:

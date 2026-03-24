@@ -29,7 +29,7 @@ async function main() {
 
   app.onError((err, c) => {
     log("app error:", err);
-    return c.text("Service Unavailable", 503);
+    return c.json({ error: String(err), stack: err instanceof Error ? err.stack : undefined }, 503);
   });
 
   const port = parseInt(process.env.PORT ?? "3601", 10);

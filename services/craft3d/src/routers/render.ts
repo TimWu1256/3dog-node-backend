@@ -62,14 +62,20 @@ export function renderRouter(db: DB) {
     const now = Date.now();
 
     // Persist the job and input code so it's visible via /jobs
-    await db.queries.createJob({ id, snapshot_status: "pending", created_at: now });
-    await db.queries.saveArtifact({
-      job_id: id,
-      role: "input_code",
-      mime_type: "text/plain",
-      text_content: code,
-      created_at: now,
-    });
+    try {
+      await db.queries.createJob({ id, snapshot_status: "pending", created_at: now });
+      await db.queries.saveArtifact({
+        job_id: id,
+        role: "input_code",
+        mime_type: "text/plain",
+        text_content: code,
+        created_at: now,
+      });
+    } catch (err) {
+      const error = stringifyError(err);
+      log("render job %s: db init failed: %s", id, error);
+      return c.json({ success: false, error }, 500);
+    }
 
     // ── Phase 1: TypeScript code → GLB ──────────────────────────────────────
     let glbBuffer: Buffer;

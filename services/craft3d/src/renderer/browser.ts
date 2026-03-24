@@ -1,9 +1,12 @@
 import fs from "fs/promises";
+import { existsSync } from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import debug from "debug";
 import { chromium } from "playwright";
 import type { Browser, Page } from "playwright";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const log = debug("craft3d:browser");
 
 // Resolve renderer.html: try project-root first (dev + project-root prod),
@@ -13,7 +16,6 @@ function resolveRendererHtmlPath(): string {
     path.resolve(__dirname, "../../browser/renderer.html"), // src/renderer → project root
     path.resolve(__dirname, "../browser/renderer.html"),    // dist/renderer → dist/browser
   ];
-  const { existsSync } = require("fs") as typeof import("fs");
   return candidates.find((p) => existsSync(p)) ?? candidates[0];
 }
 

@@ -6,7 +6,7 @@
 |------|------|------|------|
 | **agents** (LangGraph) | `3600` | Python agent 圖，透過 langgraph-cli 啟動 | ✅ |
 | **craft3d** (Node.js) | `3601` | Three.js 渲染服務，程式碼 → GLB + PNG | ✅ |
-| **realtime-demo** (Node.js) | `3681` | OpenAI Realtime API 示範（僅本地開發用）| — |
+| **realtime-monitor** (Node.js) | `3681` | OpenAI Realtime API 示範（僅本地開發用）| — |
 
 ## 技術與工具
 
@@ -23,7 +23,9 @@
 |------|------|
 | `GOOGLE_API_KEY` | Google Gemini API 金鑰（agents 使用） |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | 同上（部分套件的替代變數名稱） |
-| `OPENAI_API_KEY` | OpenAI API 金鑰（realtime-demo 使用） |
+| `OPENAI_API_KEY` | OpenAI API 金鑰（realtime-monitor 使用） |
+| `RENDER_SERVICE_URL` | craft3d service 基礎 URL（預設 `http://localhost:3601`），用於建構 GLB 下載 URL |
+| `RENDER_GLB_URL` | agents 呼叫 craft3d render 的完整 URL（預設 `{RENDER_SERVICE_URL}/render`） |
 
 ## 快速開始（本地開發）
 
@@ -43,10 +45,10 @@ uv sync
 uv run langgraph dev --host 0.0.0.0 --port 3600 --no-browser
 ```
 
-### realtime-demo（選用）
+### realtime-monitor（選用）
 
 ```bash
-cd services/realtime-demo
+cd services/realtime-monitor
 npm install
 npm run dev       # 監聽 port 3681
 ```

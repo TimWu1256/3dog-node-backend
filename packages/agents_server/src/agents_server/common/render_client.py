@@ -12,15 +12,24 @@ from dataclasses import dataclass
 
 import httpx
 
+# Base URL of the craft3d service (used to construct download URLs).
+_RENDER_SERVICE_URL = os.environ.get("RENDER_SERVICE_URL", "http://localhost:3601")
+
 _DEFAULT_RENDER_URL = os.environ.get(
-    "RENDER_GLB_URL", "http://localhost:3601/render"
+    "RENDER_GLB_URL", f"{_RENDER_SERVICE_URL}/render"
 )
+
+
+def get_glb_url(job_id: str) -> str:
+    """Return the download URL for a rendered GLB given its job_id."""
+    return f"{_RENDER_SERVICE_URL}/jobs/{job_id}/glb"
 
 
 @dataclass
 class RenderGlbResult:
     glb: bytes
     snapshot: bytes
+    job_id: str = ""
 
 
 class RenderGlbError(RuntimeError):
@@ -36,13 +45,16 @@ async def render_glb(
     timeout_sec = max(1, min(120, timeout_ms // 1000))
     payload = {"code": code, "timeoutSec": timeout_sec}
 
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            url,
-            json=payload,
-            timeout=timeout_sec + 10,  # HTTP timeout slightly above job timeout
-        )
-        response.raise_for_status()
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                json=payload,
+                timeout=timeout_sec + 10,  # HTTP timeout slightly above job timeout
+            )
+            response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise RenderGlbError(str(exc)) from exc
 
     result: dict = response.json()
 
@@ -52,4 +64,5 @@ async def render_glb(
     return RenderGlbResult(
         glb=base64.b64decode(result["glb"]),
         snapshot=base64.b64decode(result["snapshot"]),
+        job_id=result.get("job_id", ""),
     )

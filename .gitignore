@@ -8,3 +8,4 @@ node_modules
 __pycache__/
 *.pyc
 .langgraph_api/
+services/craft3d/src/db/data/

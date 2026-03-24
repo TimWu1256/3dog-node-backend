@@ -16,7 +16,8 @@ from langchain_core.messages import HumanMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from agents_server.common.instructions import load_instructions_template
-from agents_server.common.render_client import RenderGlbError, render_glb
+from agents_server.common.render_client import RenderGlbError, get_glb_url, render_glb
+from agents_server.common.schemas import ObjectProps
 from agents_server.common.utils import extract_code_from_markdown, stringify_error
 from agents_server.graphs.craft3d.state import (
     Artifact,
@@ -49,7 +50,7 @@ def _get_craft_model() -> ChatGoogleGenerativeAI:
     if _craft_model is None:
         _craft_model = ChatGoogleGenerativeAI(
             model="gemini-3.1-pro-preview",
-            thinking_config={"thinking_level": "LOW"},  # type: ignore[call-arg]
+            thinking_level="low",
         )
     return _craft_model
 
@@ -59,7 +60,7 @@ def _get_review_model() -> ChatGoogleGenerativeAI:
     if _review_model is None:
         _review_model = ChatGoogleGenerativeAI(
             model="gemini-3.1-pro-preview",
-            thinking_config={"thinking_level": "LOW"},  # type: ignore[call-arg]
+            thinking_level="low",
         )
     return _review_model
 
@@ -69,22 +70,24 @@ def _get_review_model() -> ChatGoogleGenerativeAI:
 
 
 async def _debug_save_artifact(artifact: Artifact) -> None:
+    import asyncio
     from pathlib import Path
 
     name = f"{time.time_ns()}_{artifact.input.object_name}_{artifact.version}"
     base = Path("./out") / name
-    base.mkdir(parents=True, exist_ok=True)
 
-    meta = {"props": artifact.input.model_dump(), "errors": artifact.errors}
-    (base / "meta.txt").write_text(json.dumps(meta))
-    if artifact.code:
-        (base / "code.txt").write_text(artifact.code)
-    if artifact.glb:
-        (base / "output.glb").write_bytes(artifact.glb)
-    if artifact.snapshot:
-        (base / "snapshot.png").write_bytes(artifact.snapshot)
-    if artifact.review:
-        (base / "review.txt").write_text(artifact.review.comment)
+    def _write() -> None:
+        base.mkdir(parents=True, exist_ok=True)
+        meta = {"props": artifact.input.model_dump(), "errors": artifact.errors}
+        (base / "meta.txt").write_text(json.dumps(meta))
+        if artifact.code:
+            (base / "code.txt").write_text(artifact.code)
+        if artifact.snapshot:
+            (base / "snapshot.png").write_bytes(artifact.snapshot)
+        if artifact.review:
+            (base / "review.txt").write_text(artifact.review.comment)
+
+    await asyncio.to_thread(_write)
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +108,19 @@ async def _create_artifact(
             *additional_content,
         ]
         response = await _get_craft_model().ainvoke([HumanMessage(content=content)])
-        raw: str = response.content if isinstance(response.content, str) else ""
+        raw_content = response.content
+        if isinstance(raw_content, str):
+            raw = raw_content
+        elif isinstance(raw_content, list):
+            # Thinking models return a list of blocks (e.g. thinking + text).
+            # Concatenate all non-thinking text blocks.
+            raw = "\n".join(
+                item.get("text", "") if isinstance(item, dict) else str(item)
+                for item in raw_content
+                if not (isinstance(item, dict) and item.get("type") == "thinking")
+            )
+        else:
+            raw = ""
         code = extract_code_from_markdown(raw)
         return Artifact(
             version=version,
@@ -128,7 +143,8 @@ async def _render_artifact(artifact: Artifact) -> Artifact:
         )
     try:
         result = await render_glb(artifact.code, timeout_ms=10_000)
-        return artifact.copy_with(glb=result.glb, snapshot=result.snapshot)
+        # GLB bytes are NOT stored in state — download via /jobs/{job_id}/glb.
+        return artifact.copy_with(snapshot=result.snapshot, job_id=result.job_id)
     except RenderGlbError as exc:
         return artifact.copy_with(errors=[*artifact.errors, str(exc)])
     except Exception as exc:
@@ -180,7 +196,13 @@ async def _review_artifact(artifact: Artifact) -> Artifact:
 
 async def craft_node(state: Craft3DState) -> dict:
     version = str(len(state["artifact_history"]) + 1)
-    artifact = await _create_artifact(version=version, input=state["input"])
+    input_props = ObjectProps.model_validate(state["input"]) if isinstance(state["input"], dict) else state["input"]
+    log.info("[%s] craft_node v%s — generating Three.js code", input_props.object_name, version)
+    artifact = await _create_artifact(version=version, input=input_props)
+    if artifact.errors:
+        log.warning("[%s] craft_node v%s — errors: %s", input_props.object_name, version, artifact.errors)
+    else:
+        log.info("[%s] craft_node v%s — code generated (%d chars)", input_props.object_name, version, len(artifact.code or ""))
     return {"artifact_history": artifact, "current_version": version}
 
 
@@ -188,17 +210,35 @@ async def render_node(state: Craft3DState) -> dict:
     current = get_current_artifact(state)
     if current is None:
         return {}
+    log.info("[%s] render_node v%s — rendering GLB", current.input.object_name, current.version)
     rendered = await _render_artifact(current)
-    return {"artifact_history": replace_artifact_in_history(state["artifact_history"], rendered)}
+    if rendered.errors and rendered.errors != current.errors:
+        log.warning("[%s] render_node v%s — errors: %s", current.input.object_name, current.version, rendered.errors)
+    elif rendered.job_id:
+        log.info("[%s] render_node v%s — GLB ready, job_id=%s", current.input.object_name, current.version, rendered.job_id)
+    update: dict = {"artifact_history": replace_artifact_in_history(state["artifact_history"], rendered)}
+    if rendered.job_id:
+        update["job_id"] = rendered.job_id
+        update["glb_url"] = get_glb_url(rendered.job_id)
+    return update
 
 
 async def review_node(state: Craft3DState) -> dict:
     current = get_current_artifact(state)
     if current is None:
         return {}
+    log.info("[%s] review_node v%s — reviewing snapshot", current.input.object_name, current.version)
     reviewed = await _review_artifact(current)
     asyncio.ensure_future(_debug_save_artifact(reviewed))
-    return {"artifact_history": replace_artifact_in_history(state["artifact_history"], reviewed)}
+    if reviewed.review is not None:
+        if reviewed.review.approved:
+            log.info("[%s] review_node v%s — APPROVED", current.input.object_name, current.version)
+        else:
+            log.info("[%s] review_node v%s — REJECTED: %s", current.input.object_name, current.version, reviewed.review.comment[:120])
+    update: dict = {"artifact_history": replace_artifact_in_history(state["artifact_history"], reviewed)}
+    if reviewed.review is not None:
+        update["failure_reason"] = None if reviewed.review.approved else reviewed.review.comment
+    return update
 
 
 async def revise_node(state: Craft3DState) -> dict:
@@ -207,9 +247,11 @@ async def revise_node(state: Craft3DState) -> dict:
         raise ValueError("No current artifact found for revision")
 
     version = str(len(state["artifact_history"]) + 1)
+    input_props = ObjectProps.model_validate(state["input"]) if isinstance(state["input"], dict) else state["input"]
+    log.info("[%s] revise_node v%s — revising based on review feedback", input_props.object_name, version)
     artifact = await _create_artifact(
         version=version,
-        input=state["input"],
+        input=input_props,
         fallback_code=current.code,
         additional_content=[{
             "type": "text",

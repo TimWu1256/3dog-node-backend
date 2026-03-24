@@ -1,5 +1,0 @@
-{
-  "watch": [".", ".env"],
-  "ext": "ts,js,json,env",
-  "exec": "cross-env DEBUG=rt-demo:* npm run start:ts"
-}

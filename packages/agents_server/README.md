@@ -32,11 +32,11 @@ START
   ↓
 craft_node      — Gemini generates Three.js TypeScript code
   ↓
-render_node     — POST to craft3d /render → GLB + PNG snapshot
+render_node     — POST to craft3d /render → PNG snapshot + job_id; sets glb_url
   ↓
 review_node     — Gemini reviews the snapshot image
   ↓
-review_router ──┬── (approved or max 5 revisions) → END
+review_router ──┬── (approved or max 2 revisions) → END
                 └── revise_node (Gemini revises the code)
                       ↓
                     render_node  (loop)
@@ -50,16 +50,31 @@ review_router ──┬── (approved or max 5 revisions) → END
 | `artifact_history` | `list[Artifact]` | All attempted versions (append-only) |
 | `current_version` | `str \| None` | Active artifact version pointer |
 | `revise_count` | `int` | Total revision attempts (accumulates) |
+| `job_id` | `str` | Latest successful render job ID (empty if none) |
+| `glb_url` | `str` | GLB download URL set by `render_node` on success |
+| `failure_reason` | `str \| None` | Set by `review_node`; None when approved |
+
+### Output Schema (`Craft3DOutput`)
+
+What `/runs/wait` and stream endpoints return to clients (does not affect internal state):
+
+| Field | Type | Description |
+|---|---|---|
+| `job_id` | `str` | Empty string if all renders failed |
+| `glb_url` | `str` | Full download URL; empty string if all renders failed |
+| `failure_reason` | `str \| None` | None on success; last review comment on failure |
 
 ### Artifact
 
 Each iteration produces an `Artifact` with:
 - `version` — monotonically increasing string counter
 - `code` — generated TypeScript source
-- `glb` — rendered GLB binary
-- `snapshot` — PNG snapshot grid (16 views)
+- `snapshot` — PNG snapshot grid (16 views); serialised as base64 in JSON
 - `errors` — list of accumulated error messages
 - `review` — `Review(approved, comment)` from Gemini
+- `job_id` — render service job ID (empty if render failed)
+
+> GLB bytes are **not** stored in state. Unity downloads the GLB via `glb_url` from the craft3d service directly.
 
 ## Getting Started
 
@@ -84,23 +99,40 @@ Create a `.env` file:
 ```env
 GOOGLE_API_KEY=your-google-api-key
 
-# Optional: override craft3d render endpoint (default: http://localhost:3601/render)
+# craft3d render endpoint
 RENDER_GLB_URL=http://localhost:3601/render
 
-# Optional: LangSmith tracing
-LANGCHAIN_TRACING_V2=true
-LANGCHAIN_API_KEY=your-langsmith-key
+# LangSmith tracing (required for LangGraph Studio)
+LANGSMITH_TRACING=true
+LANGSMITH_ENDPOINT=https://api.smith.langchain.com
+LANGSMITH_API_KEY=your-langsmith-api-key
+LANGSMITH_PROJECT="craft3d"
 ```
 
 ### Running with LangGraph CLI
 
 ```bash
-# Development mode (hot-reload, Studio UI at http://localhost:2024)
-langgraph dev
+# Development mode (hot-reload), served on port 3600
+langgraph dev --port 3600
 
 # Production mode (requires Docker)
 langgraph up
 ```
+
+### Monitoring with LangGraph Studio
+
+Open the Studio UI in your browser:
+
+```
+https://smith.langchain.com/studio/?baseUrl=http://localhost:3600
+```
+
+Studio provides:
+- Real-time graph visualization with per-node execution status
+- Full state history and diffs at each step
+- Ability to replay or fork any past run
+
+> Requires a LangSmith account with `LANGSMITH_API_KEY` configured in `.env`.
 
 The `craft3d` graph is exposed as an assistant. Call it via the LangGraph SDK or Studio UI with:
 
@@ -113,24 +145,35 @@ The `craft3d` graph is exposed as an assistant. Call it via the LangGraph SDK or
 }
 ```
 
-### Direct Python Usage
+### Direct Python Usage (development / testing)
 
 ```python
 import asyncio
-from agents.src.common.schemas import ObjectProps
-from agents.src.graphs.craft3d.graph import invoke_craft3d_agent
+from agents_server.common.schemas import ObjectProps
+from agents_server.graphs.craft3d.graph import craft3d_agent
+from agents_server.graphs.craft3d.state import Craft3DState
 
 async def main():
-    result = await invoke_craft3d_agent(
-        ObjectProps(object_name="torus knot", object_description="blue metallic")
-    )
-    artifact = result["current_artifact"]
-    print(f"Approved: {artifact.review.approved}")
-    print(f"Revisions: {result['revise_count']}")
-    # artifact.glb  → bytes (GLB binary)
-    # artifact.snapshot → bytes (PNG grid)
+    initial: Craft3DState = {
+        "input": ObjectProps(object_name="torus knot", object_description="blue metallic"),
+        "artifact_history": [],
+        "current_version": None,
+        "revise_count": 0,
+        "job_id": "",
+        "glb_url": "",
+        "failure_reason": None,
+    }
+    result = await craft3d_agent.ainvoke(initial)
+    print(f"glb_url: {result['glb_url']}")
+    print(f"failure_reason: {result['failure_reason']}")
 
 asyncio.run(main())
+```
+
+Or use `run_test.py` directly:
+
+```bash
+uv run python src/agents_server/graphs/craft3d/run_test.py
 ```
 
 ## Integration with craft3d

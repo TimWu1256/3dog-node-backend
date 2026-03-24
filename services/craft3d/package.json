@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "nodemon",
     "start": "node dist/index.js",
-    "start:ts": "ts-node src/index.ts",
+    "start:ts": "tsx src/index.ts",
     "test": "jest",
     "build": "tsc -p tsconfig.json",
     "prebuild": "npm run build:clean",
@@ -32,6 +32,7 @@
     "docker:ghcr:ps": "docker compose -f docker-compose.ghcr.yml ps",
     "docker:ghcr:logs": "docker compose -f docker-compose.ghcr.yml logs -f"
   },
+  "type": "module",
   "author": "",
   "license": "ISC",
   "dependencies": {
@@ -54,6 +55,7 @@
     "jest": "^30.2.0",
     "nodemon": "^3.1.11",
     "ts-jest": "^29.4.6",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0"
   }
 }

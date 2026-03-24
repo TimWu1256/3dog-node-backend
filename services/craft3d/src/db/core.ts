@@ -2,7 +2,9 @@ import BetterSqlite3 from "better-sqlite3";
 import debug from "debug";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const log = debug("db");
 
 const QUERIES_DIRNAME = path.resolve(__dirname, "queries");

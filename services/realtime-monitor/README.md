@@ -1,4 +1,4 @@
-# realtime-demo
+# realtime-monitor
 
 A browser-based demo for the [OpenAI Realtime API](https://platform.openai.com/docs/guides/realtime). It streams every WebSocket event between the browser and the OpenAI API into a live, filterable event log.
 
@@ -31,13 +31,13 @@ A browser-based demo for the [OpenAI Realtime API](https://platform.openai.com/d
 ### Install
 
 ```bash
-cd services/realtime-demo
+cd services/realtime-monitor
 npm install
 ```
 
 ### Environment
 
-Create a `.env` file in `services/realtime-demo/`:
+Create a `.env` file in `services/realtime-monitor/`:
 
 ```env
 OPENAI_API_KEY=sk-...

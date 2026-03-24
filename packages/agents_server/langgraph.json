@@ -2,5 +2,6 @@
   "dependencies": ["."],
   "graphs": {
     "craft3d": "agents_server.graphs.craft3d.graph:craft3d_agent"
-  }
+  },
+  "env": ".env"
 }
