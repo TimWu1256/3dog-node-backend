@@ -4,39 +4,67 @@
  * Uses a real SQLite test database but mocks the renderer so no browser is
  * required.  Each test suite shares a single DB instance; tables are truncated
  * between tests.
+ *
+ * ESM note: jest.unstable_mockModule() must be called before any dynamic
+ * import that transitively imports the mocked module. Static imports of
+ * modules that do NOT depend on the mocked modules are fine.
  */
 
+import { jest } from "@jest/globals";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import { Hono } from "hono";
 import { createDatabase } from "../../src/db/index";
-import { jobsRouter } from "../../src/routers/jobs";
 
-// ─── Mock renderer ────────────────────────────────────────────────────────────
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// NOTE: jest.mock() is hoisted, so constants cannot be referenced inside the
-// factory. Define sentinel values as module-scope lets and assign in beforeAll.
+// ─── Mock renderer (must come before any dynamic import of the router) ────────
+
+jest.unstable_mockModule("../../src/renderer/execute-code", () => ({
+  executeCodeToGlb: jest.fn(),
+}));
+
+jest.unstable_mockModule("../../src/renderer/render-snapshots", () => ({
+  renderGlbToSnapshotGrid: jest.fn(),
+}));
+
+// ─── Module-level declarations ───────────────────────────────────────────────
+
+// jobsRouter is imported dynamically in beforeAll so Jest's module registry
+// already has the mocks registered before the router's transitive imports run.
+let jobsRouter: typeof import("../../src/routers/jobs").jobsRouter;
+let mockExecuteCodeToGlb: jest.MockedFunction<
+  typeof import("../../src/renderer/execute-code").executeCodeToGlb
+>;
+let mockRenderGlbToSnapshotGrid: jest.MockedFunction<
+  typeof import("../../src/renderer/render-snapshots").renderGlbToSnapshotGrid
+>;
+
 const FAKE_GLB = Buffer.from("FAKE_GLB_BINARY");
 const FAKE_PNG = Buffer.from("FAKE_PNG_BINARY");
-
-jest.mock("../../src/renderer/execute-code", () => ({
-  executeCodeToGlb: jest.fn().mockResolvedValue({
-    glb: Buffer.from("FAKE_GLB_BINARY"),
-    logs: [],
-  }),
-}));
-
-jest.mock("../../src/renderer/render-snapshots", () => ({
-  renderGlbToSnapshotGrid: jest.fn().mockResolvedValue(Buffer.from("FAKE_PNG_BINARY")),
-}));
-
-// ─── DB + App setup ───────────────────────────────────────────────────────────
 
 const TEST_DB_NAME = `test_router_${process.pid}`;
 let db: ReturnType<typeof createDatabase>;
 let app: Hono;
 
+// ─── Setup / teardown ────────────────────────────────────────────────────────
+
 beforeAll(async () => {
+  // Dynamic imports run after mock registration so the router sees the mocks.
+  ({ jobsRouter } = await import("../../src/routers/jobs"));
+
+  const execMod = await import("../../src/renderer/execute-code");
+  mockExecuteCodeToGlb = execMod.executeCodeToGlb as jest.MockedFunction<
+    typeof execMod.executeCodeToGlb
+  >;
+
+  const snapMod = await import("../../src/renderer/render-snapshots");
+  mockRenderGlbToSnapshotGrid = snapMod.renderGlbToSnapshotGrid as jest.MockedFunction<
+    typeof snapMod.renderGlbToSnapshotGrid
+  >;
+
   db = createDatabase(TEST_DB_NAME);
   await db.queries.initialize();
 
@@ -55,16 +83,19 @@ afterAll(() => {
 beforeEach(() => {
   db.exec("DELETE FROM render_artifacts");
   db.exec("DELETE FROM render_jobs");
+  // clearAllMocks resets implementations in Jest 30; re-set defaults here.
   jest.clearAllMocks();
+  mockExecuteCodeToGlb.mockResolvedValue({ glb: Buffer.from("FAKE_GLB_BINARY"), logs: [] });
+  mockRenderGlbToSnapshotGrid.mockResolvedValue(Buffer.from("FAKE_PNG_BINARY"));
 });
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
-async function waitForJob(id: string, timeoutMs = 5000): Promise<any> {
+async function waitForJob(id: string, timeoutMs = 5000): Promise<Record<string, unknown>> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const res = await app.request(`/jobs/${id}`);
-    const job = await res.json();
+    const job = (await res.json()) as Record<string, unknown>;
     const jobDone = job.status === "completed" || job.status === "failed";
     const snapDone =
       job.snapshot_status === "none" ||
@@ -87,7 +118,7 @@ describe("POST /jobs", () => {
     });
 
     expect(res.status).toBe(202);
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.id).toBeDefined();
     // The background processor may have already advanced the status
     expect(["pending", "processing", "completed"]).toContain(body.status);
@@ -102,7 +133,7 @@ describe("POST /jobs", () => {
     });
 
     expect(res.status).toBe(202);
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.snapshot_status).toBe("pending");
   });
 
@@ -113,7 +144,7 @@ describe("POST /jobs", () => {
       body: "not json",
     });
     expect(res.status).toBe(400);
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.error).toBeDefined();
   });
 
@@ -141,7 +172,7 @@ describe("POST /jobs", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code: "const x = 1;", snapshots: false }),
     });
-    const { id } = await res.json();
+    const { id } = (await res.json()) as Record<string, string>;
     const job = await waitForJob(id);
 
     expect(job.status).toBe("completed");
@@ -158,7 +189,7 @@ describe("POST /jobs", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code: "const x = 1;", snapshots: true }),
     });
-    const { id } = await res.json();
+    const { id } = (await res.json()) as Record<string, string>;
     const job = await waitForJob(id);
 
     expect(job.status).toBe("completed");
@@ -176,7 +207,7 @@ describe("GET /jobs", () => {
   it("returns empty list when no jobs exist", async () => {
     const res = await app.request("/jobs");
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.jobs).toEqual([]);
     expect(body.limit).toBe(20);
     expect(body.offset).toBe(0);
@@ -188,7 +219,7 @@ describe("GET /jobs", () => {
     await db.queries.createJob({ id: "b", snapshot_status: "none", created_at: now + 1 });
 
     const res = await app.request("/jobs");
-    const body = await res.json();
+    const body = (await res.json()) as { jobs: unknown[] };
     expect(body.jobs.length).toBe(2);
   });
 
@@ -198,7 +229,7 @@ describe("GET /jobs", () => {
     }
 
     const res = await app.request("/jobs?limit=2");
-    const body = await res.json();
+    const body = (await res.json()) as { jobs: unknown[]; limit: number };
     expect(body.jobs.length).toBe(2);
     expect(body.limit).toBe(2);
   });
@@ -209,17 +240,17 @@ describe("GET /jobs", () => {
     }
 
     const all = await app.request("/jobs");
-    const allBody = await all.json();
+    const allBody = (await all.json()) as { jobs: Array<Record<string, unknown>> };
 
     const paged = await app.request("/jobs?offset=2&limit=10");
-    const pagedBody = await paged.json();
+    const pagedBody = (await paged.json()) as { jobs: Array<Record<string, unknown>> };
 
     expect(pagedBody.jobs[0].id).toBe(allBody.jobs[2].id);
   });
 
   it("clamps limit to 100", async () => {
     const res = await app.request("/jobs?limit=999");
-    const body = await res.json();
+    const body = (await res.json()) as { limit: number };
     expect(body.limit).toBe(100);
   });
 });
@@ -238,7 +269,7 @@ describe("GET /jobs/:id", () => {
 
     const res = await app.request("/jobs/myj");
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.id).toBe("myj");
     expect(body.status).toBe("pending");
   });
@@ -370,7 +401,7 @@ describe("POST /jobs/:id/snapshot", () => {
 
     const res = await app.request("/jobs/j1/snapshot", { method: "POST" });
     expect(res.status).toBe(202);
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     // Background processor may have advanced to processing/completed already
     expect(["pending", "processing", "completed"]).toContain(body.snapshot_status);
 
@@ -411,7 +442,7 @@ describe("DELETE /jobs/:id", () => {
 
     const res = await app.request("/jobs/j1", { method: "DELETE" });
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.deleted).toBe(true);
 
     // Job should be gone
@@ -435,7 +466,7 @@ describe("GET /jobs/:id/wait", () => {
 
     const res = await app.request("/jobs/j1/wait?timeout_sec=5");
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.status).toBe("completed");
   });
 

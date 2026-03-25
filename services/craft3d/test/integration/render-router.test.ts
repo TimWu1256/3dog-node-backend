@@ -2,38 +2,66 @@
  * Integration tests for POST /render.
  *
  * Uses a real SQLite test database but mocks both renderer phases so no
- * browser is required.  Mirrors the setup pattern of jobs-router.test.ts.
+ * browser is required.
+ *
+ * ESM note: jest.unstable_mockModule() must be called before any dynamic
+ * import that transitively imports the mocked module. Static imports of
+ * modules that do NOT depend on the mocked modules are fine.
  */
 
+import { jest } from "@jest/globals";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import { Hono } from "hono";
 import { createDatabase } from "../../src/db/index";
-import { renderRouter } from "../../src/routers/render";
 
-// ─── Mock renderer ────────────────────────────────────────────────────────────
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// ─── Mock renderer (must come before any dynamic import of the router) ────────
+
+jest.unstable_mockModule("../../src/renderer/execute-code", () => ({
+  executeCodeToGlb: jest.fn(),
+}));
+
+jest.unstable_mockModule("../../src/renderer/render-snapshots", () => ({
+  renderGlbToSnapshotGrid: jest.fn(),
+}));
+
+// ─── Module-level declarations ───────────────────────────────────────────────
+
+let renderRouter: typeof import("../../src/routers/render").renderRouter;
+let mockExecuteCodeToGlb: jest.MockedFunction<
+  typeof import("../../src/renderer/execute-code").executeCodeToGlb
+>;
+let mockRenderGlbToSnapshotGrid: jest.MockedFunction<
+  typeof import("../../src/renderer/render-snapshots").renderGlbToSnapshotGrid
+>;
 
 const FAKE_GLB = Buffer.from("FAKE_GLB_BINARY");
 const FAKE_PNG = Buffer.from("FAKE_PNG_BINARY");
-
-jest.mock("../../src/renderer/execute-code", () => ({
-  executeCodeToGlb: jest.fn().mockResolvedValue({
-    glb: Buffer.from("FAKE_GLB_BINARY"),
-    logs: [],
-  }),
-}));
-
-jest.mock("../../src/renderer/render-snapshots", () => ({
-  renderGlbToSnapshotGrid: jest.fn().mockResolvedValue(Buffer.from("FAKE_PNG_BINARY")),
-}));
-
-// ─── DB + App setup ───────────────────────────────────────────────────────────
 
 const TEST_DB_NAME = `test_render_${process.pid}`;
 let db: ReturnType<typeof createDatabase>;
 let app: Hono;
 
+// ─── Setup / teardown ────────────────────────────────────────────────────────
+
 beforeAll(async () => {
+  // Dynamic imports run after mock registration so the router sees the mocks.
+  ({ renderRouter } = await import("../../src/routers/render"));
+
+  const execMod = await import("../../src/renderer/execute-code");
+  mockExecuteCodeToGlb = execMod.executeCodeToGlb as jest.MockedFunction<
+    typeof execMod.executeCodeToGlb
+  >;
+
+  const snapMod = await import("../../src/renderer/render-snapshots");
+  mockRenderGlbToSnapshotGrid = snapMod.renderGlbToSnapshotGrid as jest.MockedFunction<
+    typeof snapMod.renderGlbToSnapshotGrid
+  >;
+
   db = createDatabase(TEST_DB_NAME);
   await db.queries.initialize();
 
@@ -52,12 +80,10 @@ afterAll(() => {
 beforeEach(() => {
   db.exec("DELETE FROM render_artifacts");
   db.exec("DELETE FROM render_jobs");
+  // clearAllMocks resets implementations in Jest 30; re-set defaults here.
   jest.clearAllMocks();
-  // Restore default mocks after each test (some tests override them)
-  const { executeCodeToGlb } = require("../../src/renderer/execute-code");
-  const { renderGlbToSnapshotGrid } = require("../../src/renderer/render-snapshots");
-  executeCodeToGlb.mockResolvedValue({ glb: Buffer.from("FAKE_GLB_BINARY"), logs: [] });
-  renderGlbToSnapshotGrid.mockResolvedValue(Buffer.from("FAKE_PNG_BINARY"));
+  mockExecuteCodeToGlb.mockResolvedValue({ glb: Buffer.from("FAKE_GLB_BINARY"), logs: [] });
+  mockRenderGlbToSnapshotGrid.mockResolvedValue(Buffer.from("FAKE_PNG_BINARY"));
 });
 
 // ─── POST /render ─────────────────────────────────────────────────────────────
@@ -71,15 +97,15 @@ describe("POST /render", () => {
     });
 
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.success).toBe(true);
     expect(typeof body.job_id).toBe("string");
     expect(typeof body.glb).toBe("string");
     expect(typeof body.snapshot).toBe("string");
 
     // Verify base64 decodes back to the fake buffers
-    expect(Buffer.from(body.glb, "base64")).toEqual(FAKE_GLB);
-    expect(Buffer.from(body.snapshot, "base64")).toEqual(FAKE_PNG);
+    expect(Buffer.from(body.glb as string, "base64")).toEqual(FAKE_GLB);
+    expect(Buffer.from(body.snapshot as string, "base64")).toEqual(FAKE_PNG);
   });
 
   it("persists the job and artifacts in the database", async () => {
@@ -89,19 +115,25 @@ describe("POST /render", () => {
       body: JSON.stringify({ code: "const x = 1;" }),
     });
 
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.success).toBe(true);
 
-    const job = await db.queries.getJob({ id: body.job_id });
+    const job = await db.queries.getJob({ id: body.job_id as string });
     expect(job).not.toBeNull();
     expect(job!.status).toBe("completed");
     expect(job!.snapshot_status).toBe("completed");
 
-    const glbArtifact = await db.queries.getArtifact({ job_id: body.job_id, role: "output_glb" });
+    const glbArtifact = await db.queries.getArtifact({
+      job_id: body.job_id as string,
+      role: "output_glb",
+    });
     expect(glbArtifact).not.toBeNull();
     expect(glbArtifact!.blob_content).toEqual(FAKE_GLB);
 
-    const snapshotArtifact = await db.queries.getArtifact({ job_id: body.job_id, role: "output_snapshot" });
+    const snapshotArtifact = await db.queries.getArtifact({
+      job_id: body.job_id as string,
+      role: "output_snapshot",
+    });
     expect(snapshotArtifact).not.toBeNull();
     expect(snapshotArtifact!.blob_content).toEqual(FAKE_PNG);
   });
@@ -114,7 +146,7 @@ describe("POST /render", () => {
     });
 
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.success).toBe(true);
   });
 
@@ -126,7 +158,7 @@ describe("POST /render", () => {
     });
 
     expect(res.status).toBe(400);
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.success).toBe(false);
     expect(body.error).toBeDefined();
   });
@@ -139,7 +171,7 @@ describe("POST /render", () => {
     });
 
     expect(res.status).toBe(400);
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.success).toBe(false);
   });
 
@@ -151,7 +183,7 @@ describe("POST /render", () => {
     });
 
     expect(res.status).toBe(400);
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.success).toBe(false);
   });
 
@@ -166,8 +198,7 @@ describe("POST /render", () => {
   });
 
   it("returns 422 and success=false when executeCodeToGlb throws", async () => {
-    const { executeCodeToGlb } = require("../../src/renderer/execute-code");
-    executeCodeToGlb.mockRejectedValueOnce(new Error("TS transpile error"));
+    mockExecuteCodeToGlb.mockRejectedValueOnce(new Error("TS transpile error"));
 
     const res = await app.request("/render", {
       method: "POST",
@@ -176,14 +207,13 @@ describe("POST /render", () => {
     });
 
     expect(res.status).toBe(422);
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.success).toBe(false);
-    expect(body.error).toContain("TS transpile error");
+    expect(body.error as string).toContain("TS transpile error");
   });
 
   it("records failed job status in DB when code execution fails", async () => {
-    const { executeCodeToGlb } = require("../../src/renderer/execute-code");
-    executeCodeToGlb.mockRejectedValueOnce(new Error("execution error"));
+    mockExecuteCodeToGlb.mockRejectedValueOnce(new Error("execution error"));
 
     const res = await app.request("/render", {
       method: "POST",
@@ -191,7 +221,7 @@ describe("POST /render", () => {
       body: JSON.stringify({ code: "bad code" }),
     });
 
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.success).toBe(false);
 
     // Job should have been created and marked failed
@@ -202,8 +232,7 @@ describe("POST /render", () => {
   });
 
   it("returns 422 and success=false when renderGlbToSnapshotGrid throws", async () => {
-    const { renderGlbToSnapshotGrid } = require("../../src/renderer/render-snapshots");
-    renderGlbToSnapshotGrid.mockRejectedValueOnce(new Error("snapshot render failed"));
+    mockRenderGlbToSnapshotGrid.mockRejectedValueOnce(new Error("snapshot render failed"));
 
     const res = await app.request("/render", {
       method: "POST",
@@ -212,14 +241,13 @@ describe("POST /render", () => {
     });
 
     expect(res.status).toBe(422);
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.success).toBe(false);
-    expect(body.error).toContain("snapshot render failed");
+    expect(body.error as string).toContain("snapshot render failed");
   });
 
   it("records failed snapshot status in DB when snapshot phase fails", async () => {
-    const { renderGlbToSnapshotGrid } = require("../../src/renderer/render-snapshots");
-    renderGlbToSnapshotGrid.mockRejectedValueOnce(new Error("snapshot error"));
+    mockRenderGlbToSnapshotGrid.mockRejectedValueOnce(new Error("snapshot error"));
 
     const res = await app.request("/render", {
       method: "POST",

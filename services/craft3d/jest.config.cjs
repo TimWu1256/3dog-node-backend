@@ -1,12 +1,14 @@
 /** @type {import("jest").Config} **/
 module.exports = {
   testEnvironment: "node",
+  extensionsToTreatAsEsm: [".ts"],
   transform: {
     "^.+\\.tsx?$": [
       "ts-jest",
       {
+        useESM: true,
         tsconfig: {
-          module: "CommonJS",
+          module: "ESNext",
           moduleResolution: "node",
           esModuleInterop: true,
         },

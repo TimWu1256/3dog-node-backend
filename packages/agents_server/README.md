@@ -170,12 +170,6 @@ async def main():
 asyncio.run(main())
 ```
 
-Or use `run_test.py` directly:
-
-```bash
-uv run python src/agents_server/graphs/craft3d/run_test.py
-```
-
 ## Integration with craft3d
 
 The agents call `POST /render` on the craft3d service:

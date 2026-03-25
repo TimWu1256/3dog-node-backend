@@ -1,6 +1,10 @@
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import { createDatabase } from "../../src/db/index";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Use a unique DB name per test run to avoid cross-run interference
 const TEST_DB_NAME = `test_db_${process.pid}`;

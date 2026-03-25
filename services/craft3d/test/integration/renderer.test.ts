@@ -9,9 +9,13 @@
 
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import { executeCodeToGlb } from "../../src/renderer/execute-code";
 import { renderGlbToSnapshotGrid, createImageGrid } from "../../src/renderer/render-snapshots";
 import { destroyBrowser } from "../../src/renderer/browser";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const ARTIFACTS_DIR = path.resolve(__dirname, "../artifacts/workflows");
 
@@ -30,7 +34,7 @@ afterAll(async () => {
 
 // Extract fenced code block from a markdown fixture file
 function extractCodeFromMarkdown(md: string): string {
-  const match = md.match(/^```(?:javascript|js)?\n([\s\S]*?)^```/m);
+  const match = md.match(/^```(?:javascript|js)?\r?\n([\s\S]*?)^```/m);
   if (!match) throw new Error("No fenced code block found in markdown fixture");
   return match[1];
 }
