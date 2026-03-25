@@ -1,0 +1,26 @@
+# syntax=docker/dockerfile:1
+# Agents service — builds on the official LangGraph API image (includes postgres runtime)
+
+FROM langchain/langgraph-api:3.13
+
+# ── Copy agents source and instructions ──────────────────────────────────────
+ADD packages/agents_server /deps/agents_server
+ADD instructions /deps/agents_server/instructions
+
+# ── Install dependencies (constrained to not overwrite langgraph-api) ────────
+RUN for dep in /deps/*; do \
+        if [ -d "$dep" ]; then \
+            (cd "$dep" && PYTHONDONTWRITEBYTECODE=1 uv pip install --system --no-cache-dir -c /api/constraints.txt -e .); \
+        fi; \
+    done
+
+# ── Ensure langgraph-api internals were not overwritten by user deps ──────────
+RUN mkdir -p /api/langgraph_api /api/langgraph_runtime /api/langgraph_license \
+    && touch /api/langgraph_api/__init__.py /api/langgraph_runtime/__init__.py /api/langgraph_license/__init__.py
+RUN PYTHONDONTWRITEBYTECODE=1 uv pip install --system --no-cache-dir --no-deps -e /api
+
+# ── Environment ───────────────────────────────────────────────────────────────
+ENV INSTRUCTIONS_DIR=/deps/agents_server/instructions
+ENV LANGSERVE_GRAPHS='{"craft3d": "agents_server.graphs.craft3d.graph:craft3d_agent"}'
+
+WORKDIR /deps/agents_server

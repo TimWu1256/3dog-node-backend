@@ -1,12 +1,27 @@
 services:
-  3dog-node-backend:
+  craft3d:
     build:
       context: ..
       dockerfile: Dockerfile
-    image: 3dog-node-backend:latest
+    image: 3dog-craft3d:latest
     restart: unless-stopped
     environment:
       NODE_ENV: production
+    ports:
+      - "3601:3601"
+    networks:
+      - 3dog-node-backend-net
+
+  langgraph-agents:
+    build:
+      context: ..
+      dockerfile: Dockerfile.agents
+    image: 3dog-langgraph-agents:latest
+    restart: unless-stopped
+    environment:
+      DATABASE_URI: postgresql://postgres:postgres@postgres:5432/langgraph
+      RENDER_GLB_URL: http://craft3d:3601/render
+      INSTRUCTIONS_DIR: /deps/agents_server/instructions
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
@@ -14,10 +29,31 @@ services:
       - path: ../.env
         required: false
     ports:
-      - "3600:3600"
-      - "3601:3601"
+      - "3600:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - 3dog-node-backend-net
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: langgraph
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - 3dog-node-backend-net
+
+volumes:
+  postgres_data:
 
 networks:
   3dog-node-backend-net:

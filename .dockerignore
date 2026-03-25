@@ -1,8 +1,24 @@
-.venv
-**/.venv
-dist
-node_modules
-**/.env
-**/.env.local
-**/.env.*.local
-**/*.key
+# Python
+packages/**/.venv/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+packages/**/.pytest_cache/
+packages/**/out/
+
+# Node
+node_modules/
+services/craft3d/dist/
+
+# Secrets & local config
+.env
+.env.*
+*.key
+
+# Git
+.git/
+.gitignore
+
+# Editor
+.vscode/
+**/.DS_Store

@@ -1,67 +1,29 @@
 # syntax=docker/dockerfile:1
 
-# ── Stage 1: Build craft3d (Node.js) ─────────────────────────────────────────
+# ── Stage 1: Build craft3d ────────────────────────────────────────────────────
 FROM node:24.13.0-bookworm-slim AS node-build
-WORKDIR /build/services/craft3d
+WORKDIR /build
 
-# Copy manifests and install all deps (skip postinstall to avoid downloading Chromium in build stage)
 COPY services/craft3d/package*.json ./
 RUN npm ci --ignore-scripts
 
-# Copy source and build
 COPY services/craft3d/ .
 RUN npm run build
 
 
-# ── Stage 2: Runtime (Python 3.13 + Node.js 24) ──────────────────────────────
-FROM python:3.13-slim-bookworm AS runtime
+# ── Stage 2: Runtime ──────────────────────────────────────────────────────────
+FROM node:24.13.0-bookworm-slim AS runtime
 
-# Install Node.js 24 LTS
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
-    && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
-
-# ── craft3d (Node.js service on port 3601) ────────────────────────────────────
 ENV NODE_ENV=production
+WORKDIR /app
 
-WORKDIR /app/services/craft3d
 COPY services/craft3d/package*.json ./
 
-# Install prod deps; postinstall runs "playwright install --with-deps chromium"
+# postinstall runs "playwright install --with-deps chromium"
 RUN npm ci --omit=dev
 
-# Copy compiled output from build stage (includes SQL files, browser assets via build:assets)
-COPY --from=node-build /build/services/craft3d/dist ./dist
+COPY --from=node-build /build/dist ./dist
 
-# ── agents (Python/LangGraph service on port 3600) ────────────────────────────
-# Install uv and langgraph-cli
-RUN pip install --no-cache-dir uv
+EXPOSE 3601
 
-# Make agents_server importable: src/agents_server/ is the actual package
-ENV PYTHONPATH=/app/packages/agents_server/src
-
-WORKDIR /app/packages/agents_server
-COPY packages/agents_server/pyproject.toml packages/agents_server/uv.lock ./
-
-# Install Python dependencies into the project venv (skip project itself — source not copied yet)
-RUN uv sync --frozen --no-dev --no-install-project
-
-# Install langgraph-cli into the same venv so "uv run langgraph" works
-RUN uv pip install "langgraph-cli[inmem]"
-
-# Copy agent source (graphs, instructions, etc.)
-COPY packages/agents_server/ ./
-
-# Copy instruction templates into the agents package dir and point the loader at it
-COPY instructions/ ./instructions/
-ENV INSTRUCTIONS_DIR=/app/packages/agents_server/instructions
-
-# ── Entrypoint ────────────────────────────────────────────────────────────────
-COPY bin/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-
-EXPOSE 3600 3601
-
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["node", "dist/index.js"]
