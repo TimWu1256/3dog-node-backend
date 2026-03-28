@@ -1,23 +1,36 @@
 # realtime-monitor
 
-A browser-based demo for the [OpenAI Realtime API](https://platform.openai.com/docs/guides/realtime). It streams every WebSocket event between the browser and the OpenAI API into a live, filterable event log.
+A browser-based development tool for the 3DOG system with two roles:
+
+1. **Realtime API event monitor** — streams every OpenAI Realtime API packet
+   forwarded by the Unity Server into a live, filterable event log.
+2. **HoloLens capture relay** — maintains a persistent WebSocket connection to
+   the HoloLens Unity Client and routes MR photo-capture requests between the
+   Unity Server (or browser) and the device.
 
 ## Features
 
+### Event Monitor
 - **Live event log** — every event sent to or received from the OpenAI Realtime API appears in real time, categorized and color-coded
-- **Filter chips** — show/hide events by category (session, message, text, transcript, audio, VAD, response, tool, mic, error, …)
-- **Expand / Collapse All** — toggle the raw JSON payload for every log entry at once; individual entries are also clickable
-- **Text input** — send text messages to the AI from the browser
-- **Microphone** — capture PCM16 @ 24 kHz audio via `AudioWorklet` and stream it to the API; server-side VAD handles turn detection
-- **Audio playback** — AI voice responses are decoded and played back seamlessly using the Web Audio API
-- **Multi-client sync** — the server maintains a full event history; new browser tabs receive the complete replay and all clients stay in sync (including clear commands)
+- **Filter chips** — show/hide events by category (session, message, text, transcript, audio, VAD, response, tool, capture, …)
+- **Expand / Collapse All** — toggle the raw JSON payload for every log entry; individual entries are also clickable
+- **Multi-client sync** — new browser tabs receive the full replay; `clear` is broadcast to all clients
+
+### HoloLens Capture Relay
+- Persistent WebSocket (`/hololens-ws`) keeps the HoloLens connected
+- `POST /api/capture/request` — Unity Server triggers a capture with an optional prompt
+- `GET /api/capture/result/:requestId` — poll for the returned base64 JPEG data URI
+- `GET /api/capture/status` — check whether a HoloLens is currently connected
+- Capture events (`capture.requested`, `capture.ready`, `capture.error`) are broadcast to all connected browser clients and appear in the event log
+
+### Browser Capture Tester
+The home page includes a **HoloLens Capture Tester** panel that lets you trigger a photo capture and preview the result directly in the browser — no Unity Server required. Useful for debugging the HoloLens capture pipeline in isolation.
 
 ## Stack
 
 | Layer | Tech |
 |---|---|
 | HTTP / WebSocket server | [Hono](https://hono.dev/) + `@hono/node-server` + `@hono/node-ws` |
-| OpenAI transport | `ws` (native WebSocket to `wss://api.openai.com/v1/realtime`) |
 | Frontend | Vanilla JS + Tailwind CSS (CDN) |
 | Runtime | Node.js + TypeScript (`ts-node` / compiled) |
 
@@ -26,7 +39,6 @@ A browser-based demo for the [OpenAI Realtime API](https://platform.openai.com/d
 ### Prerequisites
 
 - Node.js ≥ 18
-- An OpenAI API key with access to the Realtime API
 
 ### Install
 
@@ -40,10 +52,7 @@ npm install
 Create a `.env` file in `services/realtime-monitor/`:
 
 ```env
-OPENAI_API_KEY=sk-...
-
 # Optional — defaults shown below
-OPENAI_REALTIME_MODEL=gpt-4o-mini-realtime-preview
 PORT=3681
 ```
 
@@ -63,34 +72,57 @@ npm run start:ts
 
 Open `http://localhost:3681` in your browser.
 
-## Usage
+## API Reference
 
-1. Click **Connect** to open a session with the OpenAI Realtime API.
-2. Type a message and press **Send** (or `Enter`) to send text.
-3. Click the microphone button to stream voice input; click again to stop.
-4. Watch every API event appear in the log in real time.
-5. Use the filter chips to focus on specific event categories.
-6. Click any log entry to expand its full JSON payload.
-7. Click **Clear** to reset the event log across all connected clients.
-8. Click **Disconnect** to close the OpenAI session.
+### WebSocket Endpoints
+
+| Endpoint | Client | Description |
+|----------|--------|-------------|
+| `GET /unity-ws?sessionId=<id>` | Unity Server | Forward Realtime API events to the monitor |
+| `GET /ws?conv=<id>` | Browser | Watch a specific session's event log in real time |
+| `GET /hololens-ws` | HoloLens Unity Client | Persistent capture relay connection |
+
+### REST Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/conversations` | GET | List all known sessions |
+| `/api/capture/status` | GET | `{ connected: boolean }` — HoloLens connection status |
+| `/api/capture/request` | POST | Trigger a capture. Body: `{ requestId: string, prompt?: string }`. Returns `{ ok: true, requestId }` or `{ ok: false, error }` (503 if no HoloLens connected). |
+| `/api/capture/result/:requestId` | GET | Poll for result: `{ status: "ready", imageBase64 }` / `{ status: "pending" }` (202) / `{ status: "error", error }` (500) / `{ status: "not_found" }` (404) |
 
 ## Architecture
 
 ```
 Browser (app.js)
-  │  WebSocket /ws
-  ▼
-Hono server (server.ts)
-  │  maintains: eventLog[], clients Set
-  │  replays history to new clients
-  │  WebSocket  wss://api.openai.com/v1/realtime
-  ▼
-OpenAIRealtimeSession (openai-realtime.ts)
-  │  session.update on connect (VAD, Whisper transcription, voice: alloy)
-  │  truncates base64 audio fields in log entries
-  └─ streams raw PCM16 audio buffers back to all browser clients
+  │  WebSocket /ws?conv=<id>           WebSocket /hololens-ws
+  ▼                                           ▲
+Hono server (server.ts + capture.ts)          │
+  │  maintains per-session event logs          │
+  │  broadcasts capture events to browsers     │
+  │                                            │
+  │  WebSocket /unity-ws              HoloLens Unity Client
+  ▼                                   (CaptureRelayConnection.cs)
+Unity Server (3dog-rt-unity-server)
+  │  forwards all OpenAI Realtime API packets
+  │  calls POST /api/capture/request when AI triggers capture_photo
+  └─ polls GET /api/capture/result/:requestId for the MR photo
 ```
 
-Audio flow:
-- **Input** — browser `AudioWorklet` (PCM16 @ 24 kHz) → base64 → WebSocket → OpenAI `input_audio_buffer.append`
-- **Output** — OpenAI `response.audio.delta` (base64 PCM16) → server → browser → `AudioContext` playback queue
+### Capture Data Flow
+
+```
+[Unity Server] POST /api/capture/request { requestId, prompt }
+  → server stores pending entry in captureMap
+  → server sends capture_command via /hololens-ws WebSocket
+  → [HoloLens] CaptureRelayConnection receives command
+  → [HoloLens] MRCaptureManager.CaptureAsync() (PhotoCapture API on UWP)
+  → [HoloLens] sends capture_result { requestId, imageBase64 } via WebSocket
+  → server marks entry as "ready" in captureMap
+  → server broadcasts capture.ready event to all browser clients
+[Unity Server] GET /api/capture/result/:requestId → { status: "ready", imageBase64 }
+```
+
+### HoloLens Capture Note
+
+On HoloLens (UWP), `MRCaptureManager` uses `PhotoCapture.CreateAsync(showHolograms: true)` — the device's native MRC API — to produce a properly composited real-world + hologram image. The previous RenderTexture + `WaitForEndOfFrame()` approach produced black images because the XR runtime controls frame submission and cameras do not reliably write to a custom `targetTexture` in XR mode.

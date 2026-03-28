@@ -1,4 +1,18 @@
 services:
+  realtime-monitor:
+    build:
+      context: ..
+      dockerfile: Dockerfile.realtime-monitor
+    image: 3dog-realtime-monitor:latest
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3681"
+    ports:
+      - "3681:3681"
+    networks:
+      - 3dog-node-backend-net
+
   craft3d:
     build:
       context: ..

@@ -5,6 +5,7 @@ import { createNodeWebSocket } from "@hono/node-ws";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import debug from "debug";
+import { mountCaptureRoutes, getConnectedDevices } from "./capture";
 
 const log = debug("realtime-monitor:server");
 
@@ -38,6 +39,13 @@ const conversations = new Map<string, Conversation>();
 
 /** Browser WebSocket clients per conversation. */
 const sessionBrowsers = new Map<string, Set<WSContext>>();
+
+/** Browser WebSocket clients subscribed to the global (list) view. */
+const globalBrowsers = new Set<WSContext>();
+
+function broadcastGlobal(data: unknown): void {
+  for (const ws of globalBrowsers) safeSend(ws, data);
+}
 
 function getOrCreateConv(sessionId: string): Conversation {
   let conv = conversations.get(sessionId);
@@ -125,9 +133,10 @@ app.get(
         clientWs = ws;
 
         if (!sessionId) {
-          // No conv param — send the conversation list immediately
-          const list = buildConvList();
-          safeSend(ws, { type: "conv_list", conversations: list });
+          // No conv param — add to global set and send initial state
+          globalBrowsers.add(ws);
+          safeSend(ws, { type: "conv_list", conversations: buildConvList() });
+          safeSend(ws, { type: "hololens_devices", devices: getConnectedDevices() });
           return;
         }
 
@@ -167,7 +176,12 @@ app.get(
 
       onClose() {
         log("browser disconnected from conv:", sessionId || "(none)");
-        if (clientWs && sessionId) {
+        if (!sessionId) {
+          if (clientWs) globalBrowsers.delete(clientWs);
+          clientWs = null;
+          return;
+        }
+        if (clientWs) {
           sessionBrowsers.get(sessionId)?.delete(clientWs);
         }
         clientWs = null;
@@ -197,6 +211,20 @@ function buildConvList() {
 app.get("/api/conversations", (c: Context) => {
   return c.json(buildConvList());
 });
+
+// ── Capture relay routes (/hololens-ws, /api/capture/*) ──────────────────────
+// Capture events must be stored in conv.log (not just broadcast) so that
+// browsers joining mid-conversation receive the full history on replay.
+function broadcastAndStoreToAll(entry: unknown): void {
+  for (const conv of conversations.values()) {
+    conv.log.push(entry);
+    conv.lastEventAt = Date.now();
+  }
+  for (const set of sessionBrowsers.values()) {
+    for (const ws of set) safeSend(ws, entry);
+  }
+}
+mountCaptureRoutes(app, upgradeWebSocket, broadcastAndStoreToAll, broadcastGlobal);
 
 // ── Static files ──────────────────────────────────────────────────────────────
 

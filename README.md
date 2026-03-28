@@ -4,7 +4,7 @@
 
 | 服務 | 埠號 | 說明 | 必要 |
 |------|------|------|------|
-| **agents** (LangGraph) | `3600` | Python agent 圖，透過 langgraph-cli 啟動 | ✅ |
+| **agents** (LangGraph) | `3600` | Python agent 圖（`orchestrator` + `craft3d`），透過 langgraph-cli 啟動 | ✅ |
 | **craft3d** (Node.js) | `3601` | Three.js 渲染服務，程式碼 → GLB + PNG | ✅ |
 | **realtime-monitor** (Node.js) | `3681` | OpenAI Realtime API 示範（僅本地開發用）| — |
 
@@ -38,6 +38,13 @@ npm run dev       # 監聽 port 3601
 ```
 
 ### agents
+
+包含兩個 LangGraph graph，均由 langgraph-cli 在 port 3600 提供服務：
+
+| Graph | Assistant ID | 說明 |
+|-------|-------------|------|
+| `orchestrator` | `orchestrator` | Unity Realtime API 會話的 context 管理器；記錄事件、路由工具呼叫至 sub-agent |
+| `craft3d` | `craft3d` | 3D 物件生成管線（Gemini 生成 → 渲染 → 審查）；由 orchestrator 以 sub-agent 方式呼叫 |
 
 ```bash
 cd packages/agents_server

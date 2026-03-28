@@ -61,6 +61,66 @@
     <div id="conv-list-items" class="p-4 flex flex-col gap-2">
       <p class="text-zinc-500 text-sm text-center py-8">Loading…</p>
     </div>
+
+    <!-- ── HoloLens Devices ──────────────────────────────────────────────── -->
+    <div class="px-4 py-4 border-t border-zinc-800">
+      <div class="flex items-center gap-2.5 mb-2">
+        <!-- headset icon -->
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4 text-cyan-400 shrink-0" aria-hidden="true">
+          <path d="M2 12a10 10 0 0 1 20 0"/>
+          <rect x="2" y="12" width="4" height="6" rx="1"/>
+          <rect x="18" y="12" width="4" height="6" rx="1"/>
+          <path d="M6 18a6 6 0 0 0 12 0"/>
+        </svg>
+        <h2 class="text-sm font-semibold text-zinc-100">Connected HoloLens</h2>
+        <span id="hololens-count-badge"
+          class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700">
+          0
+        </span>
+      </div>
+      <div id="hololens-devices-list" class="flex flex-col gap-1.5">
+        <p class="text-xs text-zinc-500 py-2">No devices connected.</p>
+      </div>
+    </div>
+
+    <!-- ── HoloLens Capture Tester ───────────────────────────────────────── -->
+    <div class="px-4 pb-6 border-t border-zinc-800 pt-4">
+      <div class="flex items-center gap-2.5 mb-1.5">
+        <!-- camera icon -->
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4 text-orange-400 shrink-0" aria-hidden="true">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+          <circle cx="12" cy="13" r="4"/>
+        </svg>
+        <h2 class="text-sm font-semibold text-zinc-100">HoloLens Capture Tester</h2>
+        <span id="hololens-status-badge"
+          class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700">
+          <span class="size-1.5 rounded-full bg-zinc-500"></span>
+          Checking…
+        </span>
+      </div>
+      <p class="text-xs text-zinc-500 mb-3">
+        Test photo capture directly — browser triggers HoloLens without going through Unity Server.
+      </p>
+      <div class="flex items-center gap-2.5 flex-wrap">
+        <button id="btn-take-photo" disabled
+          class="h-8 px-3 flex items-center gap-1.5 text-xs font-medium rounded-lg transition-colors duration-150
+                 bg-orange-400 text-zinc-900 hover:bg-orange-300
+                 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5" aria-hidden="true">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+            <circle cx="12" cy="13" r="4"/>
+          </svg>
+          Take Photo
+        </button>
+        <span id="capture-tester-status" class="text-xs text-zinc-500"></span>
+      </div>
+      <div id="capture-tester-preview" class="mt-3 hidden">
+        <img id="capture-tester-img" src="" alt="Captured photo"
+          class="max-w-sm rounded-lg border border-zinc-700 cursor-default"
+          onclick="event.stopPropagation()" />
+        <p id="capture-tester-meta" class="text-xs text-zinc-500 mt-1.5"></p>
+      </div>
+    </div>
   </div>
 
   <!-- ── Log View (specific conversation) ──────────────────────────────────── -->
@@ -76,8 +136,9 @@
       <button data-cat="audio"       class="filter-chip text-xs px-1.5 py-px rounded-md bg-zinc-800 text-violet-400 border border-zinc-700 font-mono">audio</button>
       <button data-cat="vad"         class="filter-chip text-xs px-1.5 py-px rounded-md bg-zinc-800 text-teal-400  border border-zinc-700 font-mono">vad</button>
       <button data-cat="response"    class="filter-chip text-xs px-1.5 py-px rounded-md bg-zinc-800 text-zinc-300  border border-zinc-700 font-mono">response</button>
-      <button data-cat="tool"        class="filter-chip text-xs px-1.5 py-px rounded-md bg-zinc-800 text-amber-400 border border-zinc-700 font-mono">tool</button>
-      <button data-cat="status"      class="filter-chip text-xs px-1.5 py-px rounded-md bg-zinc-800 text-zinc-400  border border-zinc-700 font-mono">status</button>
+      <button data-cat="tool"        class="filter-chip text-xs px-1.5 py-px rounded-md bg-zinc-800 text-amber-400  border border-zinc-700 font-mono">tool</button>
+      <button data-cat="capture"     class="filter-chip text-xs px-1.5 py-px rounded-md bg-zinc-800 text-orange-400 border border-zinc-700 font-mono">capture</button>
+      <button data-cat="status"      class="filter-chip text-xs px-1.5 py-px rounded-md bg-zinc-800 text-zinc-400   border border-zinc-700 font-mono">status</button>
       <button data-cat="error"       class="filter-chip text-xs px-1.5 py-px rounded-md bg-zinc-800 text-red-400   border border-zinc-700 font-mono">error</button>
       <button data-cat="event"       class="filter-chip text-xs px-1.5 py-px rounded-md bg-zinc-800 text-zinc-400  border border-zinc-700 font-mono">event</button>
       <div class="ml-auto flex items-center gap-1.5 text-xs text-zinc-500 hidden md:flex shrink-0">

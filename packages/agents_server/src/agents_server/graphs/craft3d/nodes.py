@@ -49,7 +49,7 @@ def _get_craft_model() -> ChatGoogleGenerativeAI:
     global _craft_model
     if _craft_model is None:
         _craft_model = ChatGoogleGenerativeAI(
-            model="gemini-3.1-pro-preview",
+            model="gemini-3.1-flash-lite-preview",
             thinking_level="low",
         )
     return _craft_model
@@ -59,7 +59,7 @@ def _get_review_model() -> ChatGoogleGenerativeAI:
     global _review_model
     if _review_model is None:
         _review_model = ChatGoogleGenerativeAI(
-            model="gemini-3.1-pro-preview",
+            model="gemini-3.1-flash-lite-preview",
             thinking_level="low",
         )
     return _review_model

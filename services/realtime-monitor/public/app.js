@@ -11,6 +11,8 @@ const btnExpandLabel = document.getElementById('btn-expand-all-label');
 const convListView   = document.getElementById('conv-list-view');
 const logView        = document.getElementById('log-view');
 const backBtn        = document.getElementById('btn-back');
+const hololensCountBadge  = document.getElementById('hololens-count-badge');
+const hololensDevicesList = document.getElementById('hololens-devices-list');
 
 // ──────────────────────────────────────────────────────────────────────────
 // URL param routing
@@ -44,6 +46,7 @@ function render() {
     logView.style.display = 'flex';
     backBtn.style.display = '';
     stopConvList();
+    stopCaptureTester();
     startLogView(convId);
   } else {
     logView.style.display = 'none';
@@ -51,6 +54,7 @@ function render() {
     backBtn.style.display = 'none';
     stopLogView();
     startConvList();
+    startCaptureTester();
   }
 }
 
@@ -61,8 +65,11 @@ let ws = null;
 let convListInterval = null;
 let allExpanded = false;
 
+let globalWs = null;
+let globalWsReconnectTimer = null;
+
 // Filter state
-const ALL_CATS = ['session', 'message', 'text', 'transcript', 'audio', 'vad', 'response', 'tool', 'status', 'error', 'event'];
+const ALL_CATS = ['session', 'message', 'text', 'transcript', 'audio', 'vad', 'response', 'tool', 'capture', 'status', 'error', 'event'];
 const activeFilters = new Set(ALL_CATS);
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -115,6 +122,31 @@ function setStatus(state, error) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// HoloLens device list rendering
+// ──────────────────────────────────────────────────────────────────────────
+function renderHololensDevices(devices) {
+  if (!hololensCountBadge || !hololensDevicesList) return;
+  hololensCountBadge.textContent = String(devices.length);
+  if (devices.length === 0) {
+    hololensDevicesList.innerHTML = '<p class="text-xs text-zinc-500 py-2">No devices connected.</p>';
+    setHololensStatusBadge(false);
+    return;
+  }
+  setHololensStatusBadge(true);
+  hololensDevicesList.innerHTML = devices.map(d => {
+    const age = Math.round((Date.now() - d.connectedAt) / 1000);
+    const ageStr = age < 60 ? `${age}s ago` : `${Math.round(age / 60)}m ago`;
+    return `
+      <div class="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800">
+        <span class="size-2 rounded-full bg-emerald-400 shrink-0"></span>
+        <span class="text-sm text-zinc-100 truncate flex-1">${esc(d.deviceName)}</span>
+        <span class="text-xs text-zinc-500 font-mono shrink-0">connected ${ageStr}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // Log rendering helpers
 // ──────────────────────────────────────────────────────────────────────────
 function esc(s) {
@@ -134,6 +166,7 @@ const CAT_COLOR = {
   transcript:  'text-sky-300',
   audio:       'text-violet-400',
   tool:        'text-amber-400',
+  capture:     'text-orange-400',
   interrupted: 'text-red-400',
   error:       'text-red-400',
   vad:         'text-teal-400',
@@ -149,6 +182,12 @@ function categorize(dir, data) {
   const t = data.type || '';
 
   if (dir === 'sys') {
+    if (data.type === 'hololens.connected')    return { cat: 'capture', summary: `HoloLens connected · id: ${String(data.clientId || '').slice(0, 8)}` };
+    if (data.type === 'hololens.registered')   return { cat: 'capture', summary: `HoloLens registered · "${data.deviceName}" · id: ${String(data.clientId || '').slice(0, 8)}` };
+    if (data.type === 'hololens.disconnected') return { cat: 'capture', summary: `HoloLens disconnected · "${data.deviceName || data.clientId}"` };
+    if (data.type === 'capture.requested') return { cat: 'capture', summary: `HoloLens capture requested · id: ${String(data.requestId || '').slice(0, 8)}${data.prompt ? ` · "${data.prompt}"` : ''}` };
+    if (data.type === 'capture.ready')     return { cat: 'capture', summary: `HoloLens capture ready · id: ${String(data.requestId || '').slice(0, 8)}`, imageDataUri: data.imageBase64 };
+    if (data.type === 'capture.error')     return { cat: 'capture', summary: `HoloLens capture failed · ${data.error || 'unknown'}` };
     if (data.state) return { cat: 'status', summary: data.state + (data.error ? `: ${data.error}` : '') };
     if (data.message) return { cat: 'status', summary: data.message };
     return { cat: 'status', summary: JSON.stringify(data).slice(0, 80) };
@@ -164,6 +203,8 @@ function categorize(dir, data) {
     }
     case 'conversation.item.create': {
       const item = data.item || {};
+      const imgPart = item.content?.find(c => c.type === 'input_image');
+      if (imgPart) return { cat: 'capture', summary: `MR photo injected into conversation · role: ${item.role || 'user'}`, imageDataUri: imgPart.image };
       const text = item.content?.find(c => c.type === 'input_text')?.text || '';
       return { cat: 'message', summary: `Create item · ${item.role} · "${text}"` };
     }
@@ -228,10 +269,18 @@ function categorize(dir, data) {
   }
 }
 
+function truncateLargeFields(obj) {
+  return JSON.parse(JSON.stringify(obj, (key, val) => {
+    if (typeof val === 'string' && val.length > 200 && /^data:|^[A-Za-z0-9+/]{100}/.test(val))
+      return `<base64 · ${val.length} chars>`;
+    return val;
+  }));
+}
+
 function appendLog({ dir, ts, data }) {
   logEmpty.style.display = 'none';
   const dcfg = DIR_CFG[dir] || DIR_CFG.sys;
-  const { cat, summary } = categorize(dir, data);
+  const { cat, summary, imageDataUri } = categorize(dir, data);
   const summaryColor = CAT_COLOR[cat] || CAT_COLOR.default;
   const timeStr = ts ? new Date(ts).toISOString().slice(11, 23) : '--';
 
@@ -243,6 +292,10 @@ function appendLog({ dir, ts, data }) {
   if (allExpanded) el.classList.add('expanded');
   if (!activeFilters.has(cat)) el.style.display = 'none';
 
+  const imgHtml = imageDataUri
+    ? `<img src="${imageDataUri}" onclick="event.stopPropagation()" class="mt-2 max-w-xs rounded-lg border border-zinc-700 cursor-default" />`
+    : '';
+
   el.innerHTML = `
     <span class="text-xs px-1.5 py-0.5 rounded-md border font-mono shrink-0 mt-px leading-tight whitespace-nowrap ${dcfg.cls}">${esc(dcfg.label)}</span>
     <div class="flex-1 min-w-0">
@@ -250,7 +303,8 @@ function appendLog({ dir, ts, data }) {
         <span class="text-xs px-1 py-px rounded bg-zinc-800 text-zinc-500 font-mono shrink-0 leading-tight">${esc(cat)}</span>
         <span class="text-sm ${summaryColor} truncate leading-snug">${esc(summary)}</span>
       </div>
-      <pre class="hidden mt-1.5 text-xs text-zinc-400 bg-zinc-900 border border-zinc-800 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap break-all max-h-48 leading-relaxed select-text">${esc(JSON.stringify(data, null, 2))}</pre>
+      ${imgHtml}
+      <pre class="hidden mt-1.5 text-xs text-zinc-400 bg-zinc-900 border border-zinc-800 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap break-all max-h-48 leading-relaxed select-text">${esc(JSON.stringify(truncateLargeFields(data), null, 2))}</pre>
     </div>
     <span class="text-xs text-zinc-600 shrink-0 mt-px font-mono leading-tight">${esc(timeStr)}</span>
   `;
@@ -328,6 +382,34 @@ btnClear.addEventListener('click', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────────
+// Global WebSocket (device list + conv list push)
+// ──────────────────────────────────────────────────────────────────────────
+function startGlobalWs() {
+  if (globalWs) return;
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  globalWs = new WebSocket(`${proto}//${location.host}/ws`);
+  globalWs.onmessage = (e) => {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+    if (msg.type === 'hololens_devices') renderHololensDevices(msg.devices);
+    else if (msg.type === 'conv_list') renderConvList(msg.conversations);
+  };
+  globalWs.onclose = () => {
+    globalWs = null;
+    if (convId === null) {
+      globalWsReconnectTimer = setTimeout(startGlobalWs, 3000);
+    }
+  };
+  globalWs.onerror = () => {};
+}
+
+function stopGlobalWs() {
+  clearTimeout(globalWsReconnectTimer);
+  globalWsReconnectTimer = null;
+  if (globalWs) { globalWs.close(); globalWs = null; }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // Conversation list view
 // ──────────────────────────────────────────────────────────────────────────
 const convListContainer = document.getElementById('conv-list-items');
@@ -376,11 +458,141 @@ async function fetchConvList() {
 function startConvList() {
   fetchConvList();
   convListInterval = setInterval(fetchConvList, 3000);
+  startGlobalWs();
 }
 
 function stopConvList() {
   if (convListInterval) { clearInterval(convListInterval); convListInterval = null; }
+  stopGlobalWs();
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// HoloLens Capture Tester
+// ──────────────────────────────────────────────────────────────────────────
+const btnTakePhoto       = document.getElementById('btn-take-photo');
+const captureTesterStatus  = document.getElementById('capture-tester-status');
+const captureTesterPreview = document.getElementById('capture-tester-preview');
+const captureTesterImg     = document.getElementById('capture-tester-img');
+const captureTesterMeta    = document.getElementById('capture-tester-meta');
+const hololensStatusBadge  = document.getElementById('hololens-status-badge');
+
+let hololensConnected     = false;
+let captureInProgress     = false;
+let captureTesterInterval = null;
+
+function setHololensStatusBadge(connected) {
+  hololensConnected = connected;
+  if (connected) {
+    hololensStatusBadge.className =
+      'inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ' +
+      'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+    hololensStatusBadge.innerHTML =
+      '<span class="size-1.5 rounded-full bg-emerald-400"></span>Connected';
+  } else {
+    hololensStatusBadge.className =
+      'inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ' +
+      'bg-zinc-800 text-zinc-400 border border-zinc-700';
+    hololensStatusBadge.innerHTML =
+      '<span class="size-1.5 rounded-full bg-zinc-500"></span>Not connected';
+  }
+  btnTakePhoto.disabled = !connected || captureInProgress;
+}
+
+async function pollHololensStatus() {
+  try {
+    const res  = await fetch('/api/capture/status');
+    const data = await res.json();
+    setHololensStatusBadge(!!data.connected);
+  } catch {
+    setHololensStatusBadge(false);
+  }
+}
+
+function startCaptureTester() {
+  // Initial device list fetch (WS will take over once connected)
+  fetch('/api/capture/devices').then(r => r.json()).then(d => renderHololensDevices(d.devices || [])).catch(() => {});
+  pollHololensStatus();
+  captureTesterInterval = setInterval(pollHololensStatus, 2000);
+}
+
+function stopCaptureTester() {
+  if (captureTesterInterval) { clearInterval(captureTesterInterval); captureTesterInterval = null; }
+}
+
+btnTakePhoto.addEventListener('click', async () => {
+  if (!hololensConnected || captureInProgress) return;
+
+  captureInProgress = true;
+  btnTakePhoto.disabled = true;
+  captureTesterStatus.textContent = 'Sending capture request…';
+  captureTesterPreview.classList.add('hidden');
+
+  const requestId = Math.random().toString(36).slice(2, 12);
+
+  // POST /api/capture/request
+  let resp;
+  try {
+    resp = await fetch('/api/capture/request', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ requestId }),
+    });
+  } catch (e) {
+    captureTesterStatus.textContent = `Request failed: ${e.message}`;
+    captureInProgress = false;
+    btnTakePhoto.disabled = !hololensConnected;
+    return;
+  }
+
+  const reqData = await resp.json();
+  if (!resp.ok || !reqData.ok) {
+    captureTesterStatus.textContent = `Error: ${esc(reqData.error || 'unknown')}`;
+    captureInProgress = false;
+    btnTakePhoto.disabled = !hololensConnected;
+    return;
+  }
+
+  // Poll GET /api/capture/result/:requestId (1 s intervals, 30 s timeout)
+  const POLL_MAX = 30;
+  let done = false;
+  for (let i = 0; i < POLL_MAX && !done; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    captureTesterStatus.textContent = `Waiting for HoloLens… (${i + 1}s)`;
+
+    try {
+      const pollResp = await fetch(`/api/capture/result/${requestId}`);
+      const poll     = await pollResp.json();
+
+      switch (poll.status) {
+        case 'ready':
+          captureTesterStatus.textContent  = 'Capture successful!';
+          captureTesterImg.src             = poll.imageBase64;
+          captureTesterMeta.textContent    = `Captured at ${new Date().toLocaleTimeString()}`;
+          captureTesterPreview.classList.remove('hidden');
+          done = true;
+          break;
+        case 'error':
+          captureTesterStatus.textContent = `HoloLens error: ${esc(poll.error || 'unknown')}`;
+          done = true;
+          break;
+        case 'not_found':
+          captureTesterStatus.textContent = 'Request not found — relay may have restarted.';
+          done = true;
+          break;
+        // 'pending' → continue polling
+      }
+    } catch {
+      // transient network error — keep polling
+    }
+  }
+
+  if (!done) {
+    captureTesterStatus.textContent = 'Timed out waiting for HoloLens capture.';
+  }
+
+  captureInProgress = false;
+  btnTakePhoto.disabled = !hololensConnected;
+});
 
 // ──────────────────────────────────────────────────────────────────────────
 // Init
