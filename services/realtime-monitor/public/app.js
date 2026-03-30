@@ -204,7 +204,7 @@ function categorize(dir, data) {
     case 'conversation.item.create': {
       const item = data.item || {};
       const imgPart = item.content?.find(c => c.type === 'input_image');
-      if (imgPart) return { cat: 'capture', summary: `MR photo injected into conversation · role: ${item.role || 'user'}`, imageDataUri: imgPart.image };
+      if (imgPart) return { cat: 'capture', summary: `MR photo injected into conversation · role: ${item.role || 'user'}`, imageDataUri: imgPart.image_url };
       const text = item.content?.find(c => c.type === 'input_text')?.text || '';
       return { cat: 'message', summary: `Create item · ${item.role} · "${text}"` };
     }

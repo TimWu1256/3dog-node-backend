@@ -213,18 +213,11 @@ app.get("/api/conversations", (c: Context) => {
 });
 
 // ── Capture relay routes (/hololens-ws, /api/capture/*) ──────────────────────
-// Capture events must be stored in conv.log (not just broadcast) so that
-// browsers joining mid-conversation receive the full history on replay.
-function broadcastAndStoreToAll(entry: unknown): void {
-  for (const conv of conversations.values()) {
-    conv.log.push(entry);
-    conv.lastEventAt = Date.now();
-  }
-  for (const set of sessionBrowsers.values()) {
-    for (const ws of set) safeSend(ws, entry);
-  }
-}
-mountCaptureRoutes(app, upgradeWebSocket, broadcastAndStoreToAll, broadcastGlobal);
+// Capture is an independent test module — its events must NOT be stored in any
+// Realtime API conv.log nor sent to session browsers.  Only the global (home-
+// page) channel receives device-list updates; sys log events are intentionally
+// dropped here because the global WS handler does not render them.
+mountCaptureRoutes(app, upgradeWebSocket, undefined, broadcastGlobal);
 
 // ── Static files ──────────────────────────────────────────────────────────────
 
