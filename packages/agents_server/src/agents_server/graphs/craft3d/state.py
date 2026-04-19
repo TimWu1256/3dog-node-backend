@@ -111,6 +111,7 @@ class Craft3DState(TypedDict):
     # without parsing artifact_history.
     job_id: str
     glb_url: str              # download URL; empty if no render has succeeded yet
+    csharp_url: str           # C# animation script URL; empty until csharp agent is developed
     failure_reason: Optional[str]  # set by review_node when not approved; None on success
 
 
@@ -123,6 +124,7 @@ class Craft3DState(TypedDict):
 class Craft3DOutput(TypedDict):
     job_id: str              # empty string if all renders failed
     glb_url: str             # GLB download URL; empty string if all renders failed
+    csharp_url: str          # C# animation script URL; empty until csharp agent is developed
     failure_reason: Optional[str]  # None on success; review comment on failure
 
 

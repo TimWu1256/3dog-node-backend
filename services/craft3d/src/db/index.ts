@@ -12,6 +12,7 @@ export type JobRow = {
   error: string | null;
   snapshot_status: "none" | "pending" | "processing" | "completed" | "failed";
   snapshot_error: string | null;
+  animation_csharp: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -67,6 +68,11 @@ type QueryMap = {
   deleteJob: (params: { id: string }) => Promise<boolean>;
 
   listJobs: (params: { limit?: number; offset?: number }) => Promise<JobRow[]>;
+
+  setAnimationCsharp: (params: {
+    id: string;
+    animation_csharp: string | null;
+  }) => Promise<boolean>;
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -89,27 +95,66 @@ export function createDatabase(name: string) {
       file: "0001_init",
       migration: true,
       build:
-        ({ db, sql }) =>
+        ({ db, sql: sql0001 }) =>
         async () => {
           db.pragma("journal_mode = WAL");
           db.pragma("foreign_keys = ON");
           db.pragma("busy_timeout = 5000");
 
-          const checksum = await sha256(sql);
-          const checksumFilepath = path.join(db.dirname, "checksum.sha256");
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS _migrations (
+              filename TEXT PRIMARY KEY,
+              checksum TEXT NOT NULL,
+              applied_at INTEGER NOT NULL
+            )
+          `);
 
+          // Backward compat: migrate legacy checksum.sha256 → _migrations
+          const checksumFilepath = path.join(db.dirname, "checksum.sha256");
           if (fs.existsSync(checksumFilepath)) {
-            const hash = await fs.promises.readFile(checksumFilepath, "utf8");
-            if (hash === checksum) {
-              db.log("database schema already initialized");
-              return;
+            const oldHash = fs.readFileSync(checksumFilepath, "utf8");
+            const expectedHash = await sha256(sql0001);
+            if (oldHash !== expectedHash) {
+              throw new Error("database schema checksum mismatch for 0001_init.sql");
             }
-            throw new Error("database schema checksum mismatch");
+            db.prepare(
+              "INSERT OR IGNORE INTO _migrations (filename, checksum, applied_at) VALUES (?, ?, ?)"
+            ).run("0001_init.sql", oldHash, Date.now());
+            fs.unlinkSync(checksumFilepath);
+            db.log("migrated legacy checksum.sha256 to _migrations table");
           }
 
-          db.exec(sql);
-          await fs.promises.writeFile(checksumFilepath, checksum);
-          db.log("database schema initialized");
+          // Apply all pending migrations in order
+          const migrationsDir = path.resolve(db.dirname, "../../migrations");
+          const files = fs.readdirSync(migrationsDir)
+            .filter((f) => f.endsWith(".sql"))
+            .sort();
+
+          for (const filename of files) {
+            const sql =
+              filename === "0001_init.sql"
+                ? sql0001
+                : fs.readFileSync(path.join(migrationsDir, filename), "utf8");
+
+            const checksum = await sha256(sql);
+            const row = db
+              .prepare("SELECT checksum FROM _migrations WHERE filename = ?")
+              .get(filename) as { checksum: string } | undefined;
+
+            if (row) {
+              if (row.checksum !== checksum) {
+                throw new Error(`Migration ${filename} has been modified after being applied`);
+              }
+              db.log(`migration ${filename} already applied`);
+              continue;
+            }
+
+            db.exec(sql);
+            db.prepare(
+              "INSERT INTO _migrations (filename, checksum, applied_at) VALUES (?, ?, ?)"
+            ).run(filename, checksum, Date.now());
+            db.log(`applied migration ${filename}`);
+          }
         },
     },
 
@@ -186,6 +231,15 @@ export function createDatabase(name: string) {
       ({ db, sql }) =>
       async ({ limit = 20, offset = 0 }) => {
         return db.prepare(sql).all({ limit, offset }) as JobRow[];
+      },
+
+    setAnimationCsharp:
+      ({ db, sql }) =>
+      async ({ id, animation_csharp }) => {
+        const row = db.prepare(sql).get({ id, animation_csharp }) as
+          | { id: string }
+          | undefined;
+        return Boolean(row);
       },
   });
 }

@@ -64,7 +64,7 @@ START → record_event → [event_router]
 |------|------|
 | `events` | Annotated[list, append] — 跨所有 run 累積的事件日誌 |
 | `current_event` | 當前 run 的輸入事件（每次 run 覆寫） |
-| `subagent_result` | 最後一次工具呼叫的 sub-agent 結果（`job_id`, `glb_url`, `failure_reason`） |
+| `subagent_result` | 最後一次工具呼叫的 sub-agent 結果（`job_id`, `glb_url`, `csharp_url`, `failure_reason`） |
 
 #### 收集的事件類型
 
@@ -77,7 +77,7 @@ START → record_event → [event_router]
 
 > Delta 事件（音訊、逐字轉錄 delta）**不記錄**。
 
-**Output Schema（`OrchestratorOutput`）：** Unity 讀取 `GET /threads/{id}/state` 取得 `subagent_result`。
+**Output Schema（`OrchestratorOutput`）：** Unity 讀取 `GET /threads/{id}/state` 取得 `subagent_result { job_id, glb_url, csharp_url, failure_reason }`。`csharp_url` 在 csharp agent 開發完成前為空字串。
 
 ---
 
@@ -109,6 +109,7 @@ START → craft_node → render_node → review_node → review_router
 |------|------|
 | `job_id` | render service job ID（渲染失敗時為空字串） |
 | `glb_url` | GLB 下載 URL（渲染失敗時為空字串） |
+| `csharp_url` | C# 動畫腳本下載 URL（csharp agent 開發完成前為空字串） |
 | `failure_reason` | 失敗原因；成功時為 null |
 
 > GLB bytes **不存入** LangGraph state。Unity 透過 `glb_url` 直接從 craft3d 下載。

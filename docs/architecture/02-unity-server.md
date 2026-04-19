@@ -73,8 +73,9 @@ SpaceWizard 訂閱 AudioDuplex 事件，雙向橋接到 OpenAI Realtime WebSocke
 
 1. `POST /threads/{sessionThreadId}/runs`（tool_call 事件）→ `runId`；立即呼叫 `onCreated(runId)` 通知 SpaceWizard
 2. Poll `GET /threads/{sessionThreadId}/runs/{runId}` — 等待 orchestrator 完成（內含 craft3d sub-agent）
-3. `GET /threads/{sessionThreadId}/state` → `values.subagent_result { job_id, glb_url, failure_reason }`
+3. `GET /threads/{sessionThreadId}/state` → `values.subagent_result { job_id, glb_url, csharp_url, failure_reason }`
 4. 若 `glb_url` 非空 → 交給 `GLBImporter` 從 URL 匯入場景；否則呼叫 `onError(failure_reason)`
+4b. 若 `animation_enabled` 為 true 且 `csharp_url` 非空 → `GET {csharp_url}` 取得 C# 動畫腳本（**目前為 TODO**：csharp agent 及 Unity 端編譯組件尚未開發）
 
 ### 事件記錄（fire-and-forget）
 

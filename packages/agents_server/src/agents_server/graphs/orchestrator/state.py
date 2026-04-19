@@ -47,6 +47,7 @@ class SubagentResult(BaseModel):
 
     job_id: str = ""
     glb_url: str = ""
+    csharp_url: str = ""
     failure_reason: Optional[str] = None
 
     @property

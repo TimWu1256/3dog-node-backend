@@ -87,6 +87,7 @@ async def invoke_craft3d_node(state: OrchestratorState) -> dict:
         result = SubagentResult(
             job_id=result_state.get("job_id", ""),
             glb_url=result_state.get("glb_url", ""),
+            csharp_url=result_state.get("csharp_url", ""),
             failure_reason=result_state.get("failure_reason"),
         )
         log.info(

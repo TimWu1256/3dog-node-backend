@@ -312,6 +312,38 @@ export function jobsRouter(db: DB) {
     return c.json(updated, 202);
   });
 
+  // GET /jobs/:id/csharp — get animation_csharp
+  app.get("/:id/csharp", async (c) => {
+    const job = await db.queries.getJob({ id: c.req.param("id") });
+    if (!job) return c.json({ error: "Not found" }, 404);
+    return c.json({ animation_csharp: job.animation_csharp });
+  });
+
+  // POST /jobs/:id/csharp — set animation_csharp
+  app.post("/:id/csharp", async (c) => {
+    const id = c.req.param("id");
+    const job = await db.queries.getJob({ id });
+    if (!job) return c.json({ error: "Not found" }, 404);
+
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+
+    const parsed = z
+      .object({ animation_csharp: z.string() })
+      .safeParse(body);
+
+    if (!parsed.success) {
+      return c.json({ error: "Body must be { animation_csharp: string }" }, 400);
+    }
+
+    await db.queries.setAnimationCsharp({ id, animation_csharp: parsed.data.animation_csharp });
+    return c.json({ animation_csharp: parsed.data.animation_csharp });
+  });
+
   // DELETE /jobs/:id — delete job and all artifacts
   app.delete("/:id", async (c) => {
     const deleted = await db.queries.deleteJob({ id: c.req.param("id") });
