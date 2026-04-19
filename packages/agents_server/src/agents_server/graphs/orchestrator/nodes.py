@@ -69,18 +69,20 @@ async def invoke_craft3d_node(state: OrchestratorState) -> dict:
     object_description: str = (
         arguments.get("object_description") or arguments.get("description") or ""
     )
+    animation_enabled: bool = bool(arguments.get("animation_enabled", False))
 
     log.info(
-        "orchestrator: invoking craft3d sub-agent — name=%r description=%r",
+        "orchestrator: invoking craft3d sub-agent — name=%r description=%r animation_enabled=%r",
         object_name,
         object_description,
+        animation_enabled,
     )
 
     try:
         # craft3d_agent is compiled without a checkpointer; ainvoke runs it
         # in-process and returns the Craft3DOutput keys.
         result_state = await craft3d_agent.ainvoke(
-            {"input": ObjectProps(object_name=object_name, object_description=object_description)}
+            {"input": ObjectProps(object_name=object_name, object_description=object_description, animation_enabled=animation_enabled)}
         )
         result = SubagentResult(
             job_id=result_state.get("job_id", ""),

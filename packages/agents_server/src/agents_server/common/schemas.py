@@ -4,6 +4,7 @@ from pydantic import BaseModel, model_validator
 class ObjectProps(BaseModel):
     object_name: str
     object_description: str = ""
+    animation_enabled: bool = False
 
     @model_validator(mode="before")
     @classmethod
@@ -14,5 +15,6 @@ class ObjectProps(BaseModel):
                 data = {
                     "object_name": data["name"],
                     "object_description": data.get("description", ""),
+                    "animation_enabled": data.get("animation_enabled", False),
                 }
         return data
