@@ -231,6 +231,27 @@ export function jobsRouter(db: DB) {
     });
   });
 
+  // GET /jobs/:id/code — download code
+  app.get("/:id/code", async (c) => {
+    const job = await db.queries.getJob({ id: c.req.param("id") });
+    if (!job) return c.json({ error: "Not found" }, 404);
+
+    const artifact = await db.queries.getArtifact({
+      job_id: c.req.param("id"),
+      role: "input_code",
+    });
+    if (!artifact?.text_content)
+      return c.json({ error: "Code artifact missing" }, 404);
+
+    return new Response(artifact.text_content, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Length": String(Buffer.byteLength(artifact.text_content)),
+        "Cache-Control": "no-store",
+      },
+    });
+  });
+
   // GET /jobs/:id/snapshot — download snapshot PNG
   app.get("/:id/snapshot", async (c) => {
     const job = await db.queries.getJob({ id: c.req.param("id") });
