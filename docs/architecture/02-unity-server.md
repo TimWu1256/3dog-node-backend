@@ -90,8 +90,8 @@ SpaceWizard 訂閱 AudioDuplex 事件，雙向橋接到 OpenAI Realtime WebSocke
 
 1. 從 `GenAIDataChannelManager.ConnectedPeerCount` 取得當前連線數 N
 2. 廣播 `capture_request`（`requestId`, `prompt`）給所有 Client
-3. 訂閱 `GenAIDataChannelManager.OnMessageReceived`，收集各 Client 的 `capture_result` / `capture_error`
-4. 等待至所有 N 個 Client 回應，或 10 秒 timeout 到期
+3. 訂閱 `GenAIDataChannelManager.OnTextReceived`，收集各 Client 的 `capture_result` / `capture_error`
+4. 等待至所有 N 個 Client 回應，或 **30 秒** timeout 到期（HoloLens PhotoCapture 初始化最多需 ~10 s）
 5. 呼叫 `onAllComplete(List<CaptureClientResult>)`，由 `SpaceWizard` 對每筆成功截圖呼叫 `SendConversationImage()`
 
 ---
@@ -100,6 +100,17 @@ SpaceWizard 訂閱 AudioDuplex 事件，雙向橋接到 OpenAI Realtime WebSocke
 
 - `GLBImporter`：使用 `GltfFast`（`com.unity.cloud.gltfast`）將 GLB URL 直接匯入為 Unity GameObject
 - `GLBManager`：管理場景中已生成的物件集合
+
+---
+
+## SpatialMeshBuilder
+
+訂閱 `SpatialDataStore` 的 mesh 事件，在 Server 場景中重建真實世界空間網格的 Unity `MeshCollider`。
+
+- 每筆 `OnMeshUpserted` → 建立或更新 `MeshFilter` + `MeshCollider` GameObject（命名為 `SpatialMesh_{meshId}`）
+- 使用 32-bit index format 支援大型 mesh（> 65,000 頂點）
+- **預設關閉 `MeshRenderer`**（純物理用途）；Inspector 中可開啟 `showDebugMesh` 以視覺化確認傳輸結果
+- 支援物件掉落在真實桌面/地板上而不穿透
 
 ---
 
