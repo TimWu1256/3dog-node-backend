@@ -55,6 +55,20 @@ class SubagentResult(BaseModel):
         return bool(self.glb_url)
 
 
+class AnimationAgentResult(BaseModel):
+    """Output returned by the Animation Agent after Craft3D succeeds."""
+
+    job_id: str = ""
+    csharp_ready: bool = False
+    csharp_url: str = ""
+    planner_class_name: str = ""
+    failure_reason: Optional[str] = None
+
+    @property
+    def is_success(self) -> bool:
+        return self.csharp_ready and not self.failure_reason
+
+
 # ---------------------------------------------------------------------------
 # State reducer
 # ---------------------------------------------------------------------------
@@ -87,6 +101,10 @@ class OrchestratorState(TypedDict):
     # Unity reads this from /threads/{id}/state after a tool_call run.
     subagent_result: Optional[dict]
 
+    # Optional debug/audit result from the Animation Agent. Unity can keep using
+    # subagent_result.csharp_url for the runtime handoff.
+    animation_result: Optional[dict]
+
 
 # ---------------------------------------------------------------------------
 # Output schema — keys returned by /runs/wait for tool_call runs.
@@ -95,3 +113,4 @@ class OrchestratorState(TypedDict):
 
 class OrchestratorOutput(TypedDict):
     subagent_result: Optional[dict]
+    animation_result: Optional[dict]

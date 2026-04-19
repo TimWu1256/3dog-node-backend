@@ -18,7 +18,11 @@ from __future__ import annotations
 from langgraph.graph import END, START, StateGraph
 
 from agents_server.graphs.orchestrator.edges import TOOL_DISPATCH, event_router
-from agents_server.graphs.orchestrator.nodes import invoke_craft3d_node, record_event_node
+from agents_server.graphs.orchestrator.nodes import (
+    invoke_animation_agent_node,
+    invoke_craft3d_node,
+    record_event_node,
+)
 from agents_server.graphs.orchestrator.state import OrchestratorOutput, OrchestratorState
 
 # ---------------------------------------------------------------------------
@@ -31,6 +35,7 @@ _builder.add_node("record_event", record_event_node)
 
 # Register one sub-agent node per tool in the dispatch table.
 _builder.add_node("invoke_craft3d", invoke_craft3d_node)
+_builder.add_node("invoke_animation_agent", invoke_animation_agent_node)
 
 _builder.add_edge(START, "record_event")
 
@@ -41,8 +46,29 @@ _builder.add_conditional_edges(
     [*TOOL_DISPATCH.values(), END],
 )
 
-# Each sub-agent node terminates after completion.
+# Craft3D can optionally continue to the Animation Agent when animation_enabled
+# is set on the original create_3d_object tool call.
+def _after_craft3d(state: OrchestratorState) -> str:
+    event = state.get("current_event") or {}
+    data = event.get("data") or {}
+    arguments = data.get("arguments") or {}
+    result = state.get("subagent_result") or {}
+
+    animation_enabled = bool(arguments.get("animation_enabled", False))
+    craft3d_succeeded = bool(result.get("job_id")) and bool(result.get("glb_url"))
+    return "invoke_animation_agent" if animation_enabled and craft3d_succeeded else END
+
+
+_builder.add_conditional_edges(
+    "invoke_craft3d",
+    _after_craft3d,
+    ["invoke_animation_agent", END],
+)
+_builder.add_edge("invoke_animation_agent", END)
+
+# Each non-Craft3D sub-agent node terminates after completion.
 for _node in TOOL_DISPATCH.values():
-    _builder.add_edge(_node, END)
+    if _node != "invoke_craft3d":
+        _builder.add_edge(_node, END)
 
 orchestrator_agent = _builder.compile()

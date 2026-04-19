@@ -1,0 +1,182 @@
+"""Tool-server helpers used by the backend Animation Agent."""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import os
+from dataclasses import dataclass
+from typing import Any
+
+import httpx
+
+
+TOOL_SERVER_BASE_URL = os.environ.get(
+    "TOOL_SERVER_URL",
+    os.environ.get("RENDER_SERVICE_URL", "http://localhost:3601"),
+).rstrip("/")
+
+JOB_PATH_TEMPLATE = os.environ.get("TOOL_SERVER_JOB_PATH", "/jobs/{id}")
+CODE_PATH_TEMPLATE = os.environ.get("TOOL_SERVER_CODE_PATH", "/jobs/{id}/code")
+SNAPSHOT_PATH_TEMPLATE = os.environ.get(
+    "TOOL_SERVER_SNAPSHOT_PATH",
+    "/jobs/{id}/snapshot",
+)
+CSHARP_PATH_TEMPLATE = os.environ.get("TOOL_SERVER_CSHARP_PATH", "/jobs/{id}/csharp")
+
+FETCH_ATTEMPTS = int(os.environ.get("ANIMATION_AGENT_FETCH_ATTEMPTS", "12"))
+FETCH_INTERVAL_SEC = float(os.environ.get("ANIMATION_AGENT_FETCH_INTERVAL_SEC", "1.5"))
+
+
+class ToolServerArtifactError(RuntimeError):
+    """Raised when required tool-server artifacts are unavailable."""
+
+
+@dataclass(frozen=True)
+class ToolServerAnimationBundle:
+    job_id: str
+    object_name: str
+    object_description: str
+    user_prompt: str
+    job_metadata: dict[str, Any]
+    code: str
+    snapshot_base64: str
+    snapshot_mime_type: str = "image/png"
+
+
+@dataclass(frozen=True)
+class UploadedPlanner:
+    csharp_url: str
+    response_json: dict[str, Any] | None = None
+
+
+def build_tool_server_url(path_template: str, job_id: str) -> str:
+    path = path_template.format(id=job_id, job_id=job_id)
+    if not path.startswith("/"):
+        path = "/" + path
+    return f"{TOOL_SERVER_BASE_URL}{path}"
+
+
+async def fetch_animation_bundle(
+    *,
+    job_id: str,
+    object_name: str,
+    object_description: str,
+    user_prompt: str,
+) -> ToolServerAnimationBundle:
+    """Fetch metadata, generated Three.js code, and snapshot for animation planning."""
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        job_metadata = await _get_json_with_retry(
+            client,
+            build_tool_server_url(JOB_PATH_TEMPLATE, job_id),
+            "job metadata",
+        )
+        code = await _get_text_with_retry(
+            client,
+            build_tool_server_url(CODE_PATH_TEMPLATE, job_id),
+            "generated code",
+        )
+        snapshot_bytes = await _get_bytes_with_retry(
+            client,
+            build_tool_server_url(SNAPSHOT_PATH_TEMPLATE, job_id),
+            "snapshot",
+        )
+
+    return ToolServerAnimationBundle(
+        job_id=job_id,
+        object_name=object_name,
+        object_description=object_description,
+        user_prompt=user_prompt,
+        job_metadata=job_metadata,
+        code=code,
+        snapshot_base64=base64.b64encode(snapshot_bytes).decode("ascii"),
+    )
+
+
+async def upload_csharp_planner(*, job_id: str, csharp: str) -> UploadedPlanner:
+    """Upload generated planner source to the tool-server C# endpoint."""
+
+    url = build_tool_server_url(CSHARP_PATH_TEMPLATE, job_id)
+    payload = {"animation_csharp": csharp}
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(url, json=payload)
+        if response.status_code >= 400:
+            raise ToolServerArtifactError(
+                f"POST {url} failed with HTTP {response.status_code}: {response.text[:400]}"
+            )
+
+        try:
+            response_json = response.json()
+        except ValueError:
+            response_json = None
+
+    return UploadedPlanner(csharp_url=url, response_json=response_json)
+
+
+async def _get_json_with_retry(
+    client: httpx.AsyncClient,
+    url: str,
+    label: str,
+) -> dict[str, Any]:
+    last_error = ""
+
+    for _ in range(max(1, FETCH_ATTEMPTS)):
+        try:
+            response = await client.get(url)
+            if response.status_code == 200:
+                return response.json()
+            last_error = f"HTTP {response.status_code}: {response.text[:300]}"
+        except (httpx.HTTPError, ValueError) as exc:
+            last_error = str(exc)
+
+        await _sleep_between_attempts()
+
+    raise ToolServerArtifactError(f"Could not fetch {label} from {url}: {last_error}")
+
+
+async def _get_text_with_retry(
+    client: httpx.AsyncClient,
+    url: str,
+    label: str,
+) -> str:
+    last_error = ""
+
+    for _ in range(max(1, FETCH_ATTEMPTS)):
+        try:
+            response = await client.get(url)
+            if response.status_code == 200 and response.text.strip():
+                return response.text
+            last_error = f"HTTP {response.status_code}: {response.text[:300]}"
+        except httpx.HTTPError as exc:
+            last_error = str(exc)
+
+        await _sleep_between_attempts()
+
+    raise ToolServerArtifactError(f"Could not fetch {label} from {url}: {last_error}")
+
+
+async def _get_bytes_with_retry(
+    client: httpx.AsyncClient,
+    url: str,
+    label: str,
+) -> bytes:
+    last_error = ""
+
+    for _ in range(max(1, FETCH_ATTEMPTS)):
+        try:
+            response = await client.get(url)
+            if response.status_code == 200 and response.content:
+                return response.content
+            last_error = f"HTTP {response.status_code}: {response.text[:300]}"
+        except httpx.HTTPError as exc:
+            last_error = str(exc)
+
+        await _sleep_between_attempts()
+
+    raise ToolServerArtifactError(f"Could not fetch {label} from {url}: {last_error}")
+
+
+async def _sleep_between_attempts() -> None:
+    await asyncio.sleep(max(0.1, FETCH_INTERVAL_SEC))

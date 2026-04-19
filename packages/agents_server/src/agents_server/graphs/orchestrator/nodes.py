@@ -15,8 +15,10 @@ import logging
 from datetime import datetime, timezone
 
 from agents_server.common.schemas import ObjectProps
+from agents_server.graphs.animation_agent import run_animation_agent
 from agents_server.graphs.craft3d.graph import craft3d_agent
 from agents_server.graphs.orchestrator.state import (
+    AnimationAgentResult,
     EventType,
     OrchestratorState,
     RealtimeEvent,
@@ -61,15 +63,7 @@ async def invoke_craft3d_node(state: OrchestratorState) -> dict:
     runs the craft3d graph as a sub-agent (blocking until completion), then
     records a tool_result event and returns the SubagentResult.
     """
-    event = state.get("current_event") or {}
-    data = event.get("data") or {}
-    arguments = data.get("arguments") or {}
-
-    object_name: str = arguments.get("object_name") or arguments.get("name") or ""
-    object_description: str = (
-        arguments.get("object_description") or arguments.get("description") or ""
-    )
-    animation_enabled: bool = bool(arguments.get("animation_enabled", False))
+    object_name, object_description, animation_enabled = _extract_object_request(state)
 
     log.info(
         "orchestrator: invoking craft3d sub-agent — name=%r description=%r animation_enabled=%r",
@@ -82,7 +76,13 @@ async def invoke_craft3d_node(state: OrchestratorState) -> dict:
         # craft3d_agent is compiled without a checkpointer; ainvoke runs it
         # in-process and returns the Craft3DOutput keys.
         result_state = await craft3d_agent.ainvoke(
-            {"input": ObjectProps(object_name=object_name, object_description=object_description, animation_enabled=animation_enabled)}
+            {
+                "input": ObjectProps(
+                    object_name=object_name,
+                    object_description=object_description,
+                    animation_enabled=animation_enabled,
+                )
+            }
         )
         result = SubagentResult(
             job_id=result_state.get("job_id", ""),
@@ -114,3 +114,79 @@ async def invoke_craft3d_node(state: OrchestratorState) -> dict:
         # _events_reducer appends this to the existing list.
         "events": [tool_result_event.model_dump()],
     }
+
+
+# ---------------------------------------------------------------------------
+# invoke_animation_agent
+# ---------------------------------------------------------------------------
+
+
+async def invoke_animation_agent_node(state: OrchestratorState) -> dict:
+    """Generate and upload a Unity C# planner after Craft3D succeeds."""
+
+    subagent_result = dict(state.get("subagent_result") or {})
+    job_id = subagent_result.get("job_id") or ""
+    glb_url = subagent_result.get("glb_url") or ""
+    object_name, object_description, animation_enabled = _extract_object_request(state)
+
+    if not animation_enabled:
+        result = AnimationAgentResult(
+            job_id=job_id,
+            failure_reason="animation_enabled is false; Animation Agent skipped.",
+        )
+    elif not job_id or not glb_url:
+        result = AnimationAgentResult(
+            job_id=job_id,
+            failure_reason="Craft3D did not produce a successful job; Animation Agent skipped.",
+        )
+    else:
+        log.info(
+            "orchestrator: invoking animation agent job_id=%s name=%r",
+            job_id,
+            object_name,
+        )
+        generated = await run_animation_agent(
+            job_id=job_id,
+            object_name=object_name,
+            object_description=object_description,
+            user_prompt=object_description,
+        )
+        result = AnimationAgentResult(**generated.model_dump())
+
+    if result.csharp_url:
+        subagent_result["csharp_url"] = result.csharp_url
+
+    log.info(
+        "orchestrator: animation agent finished success=%s job_id=%s class=%s",
+        result.is_success,
+        result.job_id,
+        result.planner_class_name,
+    )
+
+    tool_result_event = RealtimeEvent(
+        type=EventType.TOOL_RESULT,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        data={
+            "source": "animation_agent",
+            **result.model_dump(),
+        },
+    )
+
+    return {
+        "subagent_result": subagent_result,
+        "animation_result": result.model_dump(),
+        "events": [tool_result_event.model_dump()],
+    }
+
+
+def _extract_object_request(state: OrchestratorState) -> tuple[str, str, bool]:
+    event = state.get("current_event") or {}
+    data = event.get("data") or {}
+    arguments = data.get("arguments") or {}
+
+    object_name: str = arguments.get("object_name") or arguments.get("name") or ""
+    object_description: str = (
+        arguments.get("object_description") or arguments.get("description") or ""
+    )
+    animation_enabled: bool = bool(arguments.get("animation_enabled", False))
+    return object_name, object_description, animation_enabled
