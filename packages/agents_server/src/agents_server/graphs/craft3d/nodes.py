@@ -33,7 +33,7 @@ log = logging.getLogger("graphs.craft3d")
 # Prompt templates (loaded once at import time)
 # ---------------------------------------------------------------------------
 
-_render_generation_prompt = load_instructions_template("threejs-generation-v2")
+_render_generation_prompt = load_instructions_template("craft3d-generation-v3")
 _render_review_prompt = load_instructions_template("craft3d-review")
 _render_revise_prompt = load_instructions_template("craft3d-revise")
 
