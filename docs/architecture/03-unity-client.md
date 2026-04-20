@@ -28,16 +28,9 @@
 | UWP（HoloLens） | `PhotoCapture.CreateAsync(showHolograms: true)` | 使用 HoloLens 原生 MRC（Mixed Reality Capture）管線，正確合成真實世界攝影機畫面與全息影像。**這是 HoloLens 上唯一可靠的方法**。 |
 | Editor / 其他平台 | 顯式 `Camera.Render()` → RenderTexture | arCamera 先渲染背景，virtualCamera 以 Depth-only clear 疊加虛擬物件。使用 `Camera.Render()` 而非 `WaitForEndOfFrame()`，避免 XR 模式下相機不寫入自訂 RenderTexture 的問題。 |
 
+兩條路徑的 Base64 編碼均使用 `ThreadPool.QueueUserWorkItem` 在背景執行緒完成，避免阻塞主執行緒。
+
 > **注意**：舊版使用 `WaitForEndOfFrame()` 方式在 HoloLens XR 模式下會產生全黑影像，原因是 XR runtime 直接控制相機 frame 提交，不經過 Unity 標準相機渲染管線，導致 RenderTexture 保持空白（全黑）。
-
-### Spatial Mesh 隱藏策略
-
-拍照前，`MRCaptureManager` 自動找出所有在 **"Spatial Awareness" Layer** 上的 `Renderer` 並暫時停用，拍照完成後立即還原：
-
-- **目的**：避免半透明黑色三角形 mesh 出現在截圖中，影響 LLM 圖像分析準確率及使用者體驗
-- **保留物理能力**：`MeshCollider` 不受影響，空間感知（物件碰撞、Raycasting）照常運作
-- UWP 路徑：停用後多等一幀（`yield return null`）確保 MRC buffer 中的 frame 不含 mesh
-- Editor 路徑：停用後直接執行 `Camera.Render()`，不需額外等待
 
 ---
 
@@ -47,9 +40,8 @@
 SpaceWizard（AI function call: capture_photo）
   ↓
 CapturePhotoHandler（Unity Server）
-  ├─ 讀取 ConnectedPeerCount → N 台 HoloLens
-  ├─ 廣播 capture_request { requestId, prompt } via GenAI DataChannel (ID 7)
-  └─ 等待收集所有回應（timeout 10s）
+  ├─ Broadcast(capture_request) → 回傳已送達 peer ID 列表作為 expectedPeers
+  └─ 等待收集所有 expectedPeers 回應（timeout 10s；斷線 peer 立即記為 error）
         │
         ▼（每台 HoloLens 獨立執行）
   GenAICaptureHandler（HoloLens Client）

@@ -93,7 +93,7 @@ def _artifact_history_reducer(
     return [*coerced_current, _coerce_artifact(update)]
 
 
-def _revise_count_reducer(current: int, delta: int) -> int:
+def _review_count_reducer(current: int, delta: int) -> int:
     return current + delta
 
 
@@ -106,7 +106,7 @@ class Craft3DState(TypedDict):
     input: ObjectProps
     artifact_history: Annotated[list[Artifact], _artifact_history_reducer]
     current_version: Optional[str]
-    revise_count: Annotated[int, _revise_count_reducer]
+    review_count: Annotated[int, _review_count_reducer]
     # Top-level fields set by render_node / review_node for fast access
     # without parsing artifact_history.
     job_id: str

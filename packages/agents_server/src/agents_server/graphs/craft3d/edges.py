@@ -6,7 +6,7 @@ from langgraph.graph import END
 
 from agents_server.graphs.craft3d.state import Craft3DState, get_current_artifact
 
-MAX_REVISES = 2
+MAX_REVIEWS = 1
 
 
 def review_router(state: Craft3DState) -> str:
@@ -17,7 +17,7 @@ def review_router(state: Craft3DState) -> str:
     if artifact.review is None:
         raise ValueError("No review was done.")
 
-    if artifact.review.approved or state["revise_count"] >= MAX_REVISES:
+    if artifact.review.approved or state["review_count"] >= MAX_REVIEWS:
         return END
 
     return "revise_node"

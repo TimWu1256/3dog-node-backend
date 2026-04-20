@@ -14,6 +14,7 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 
 from agents_server.common.instructions import load_instructions_template
 from agents_server.common.render_client import RenderGlbError, get_glb_url, render_glb
@@ -41,26 +42,26 @@ _render_revise_prompt = load_instructions_template("craft3d-revise")
 # LLM clients (lazy-initialized to defer API key validation until first use)
 # ---------------------------------------------------------------------------
 
-_craft_model: ChatGoogleGenerativeAI | None = None
-_review_model: ChatGoogleGenerativeAI | None = None
+_craft_model: ChatOpenAI | None = None
+_review_model: ChatOpenAI | None = None
 
 
-def _get_craft_model() -> ChatGoogleGenerativeAI:
+def _get_craft_model() -> ChatOpenAI:
     global _craft_model
     if _craft_model is None:
         _craft_model = ChatGoogleGenerativeAI(
-            model="gemini-3.1-flash-lite-preview",
+            model="gemini-3-flash-preview",
             thinking_level="low",
         )
     return _craft_model
 
 
-def _get_review_model() -> ChatGoogleGenerativeAI:
+def _get_review_model() -> ChatOpenAI:
     global _review_model
     if _review_model is None:
-        _review_model = ChatGoogleGenerativeAI(
-            model="gemini-3.1-flash-lite-preview",
-            thinking_level="low",
+        _review_model = ChatOpenAI(
+            model="gpt-5.4-mini",
+            reasoning_effort="low",
         )
     return _review_model
 
@@ -238,6 +239,7 @@ async def review_node(state: Craft3DState) -> dict:
     update: dict = {"artifact_history": replace_artifact_in_history(state["artifact_history"], reviewed)}
     if reviewed.review is not None:
         update["failure_reason"] = None if reviewed.review.approved else reviewed.review.comment
+    update["review_count"] = 1  # reducer: current + 1
     return update
 
 
@@ -264,5 +266,4 @@ async def revise_node(state: Craft3DState) -> dict:
     return {
         "artifact_history": artifact,
         "current_version": version,
-        "revise_count": 1,  # reducer: current + 1
     }

@@ -89,11 +89,38 @@ SpaceWizard 訂閱 AudioDuplex 事件，雙向橋接到 OpenAI Realtime WebSocke
 
 ### 流程
 
-1. 從 `GenAIDataChannelManager.ConnectedPeerCount` 取得當前連線數 N
-2. 廣播 `capture_request`（`requestId`, `prompt`）給所有 Client
+1. 呼叫 `GenAIDataChannelManager.Broadcast(json)`，廣播 `capture_request`（`requestId`, `prompt`）給所有 DataChannel 狀態為 Open 的 Client
+2. `Broadcast()` 回傳實際送達的 peer ID 列表，作為本次請求的 expected-responder set（`HashSet<string> expectedPeers`）
+   - 這修正了舊設計中 `ConnectedPeerCount` 與 `Broadcast` 之間的 race condition
 3. 訂閱 `GenAIDataChannelManager.OnTextReceived`，收集各 Client 的 `capture_result` / `capture_error`
-4. 等待至所有 N 個 Client 回應，或 **30 秒** timeout 到期（HoloLens PhotoCapture 初始化最多需 ~10 s）
-5. 呼叫 `onAllComplete(List<CaptureClientResult>)`，由 `SpaceWizard` 對每筆成功截圖呼叫 `SendConversationImage()`
+4. 訂閱 `GenAIDataChannelManager.OnPeerRemoved`：若 Client 在截圖過程中斷線，立即記為 `capture_error`，避免等到 timeout
+5. 收到非 `expectedPeers` 中的 sender 回應時忽略（防止意外重複）
+6. 等待至所有 Client 回應，或 **timeout** 到期（預設 10s）
+7. 呼叫 `onAllComplete(List<CaptureClientResult>)`，由 `SpaceWizard` 對每筆成功截圖呼叫 `SendConversationImage()`
+
+---
+
+## GenAIDataChannel / GenAIDataChannelManager
+
+### Wire format
+
+訊息為純 UTF-8 JSON 字串，**不帶任何 byte marker prefix**。片段重組以 `{`（0x7B）作為新訊息的起始標記，以 `}` 作為結束判斷。
+
+> **舊設計移除**：先前版本有 1-byte type marker（0x00 = text, 0x01 = binary），現已廢除。Binary message support（`SendBytes`、`BroadcastBytes`、`OnBytesReceived`）已移除。
+
+### API（GenAIDataChannelManager 對外介面）
+
+| 方法 / 事件 | 說明 |
+|-------------|------|
+| `Broadcast(json)` | 廣播 JSON 給所有 Open peers，**回傳** `List<string>` 實際送達的 peer ID |
+| `SendTo(peerId, json)` | 單播給指定 peer |
+| `OnTextReceived` | `(senderId, json)` — 收到任一 peer 訊息 |
+| `OnPeerAdded` / `OnPeerRemoved` | peer 上下線事件 |
+| `ConnectedPeerCount` | 目前 DataChannel 狀態為 Open 的 peer 數 |
+
+### Send queuing
+
+訊息在 DataChannel 尚未 Open 時會進入佇列；DataChannel 進入 Open 狀態（訂閱 `StateChanged` 事件）時自動 flush。
 
 ---
 
@@ -101,17 +128,6 @@ SpaceWizard 訂閱 AudioDuplex 事件，雙向橋接到 OpenAI Realtime WebSocke
 
 - `GLBImporter`：使用 `GltfFast`（`com.unity.cloud.gltfast`）將 GLB URL 直接匯入為 Unity GameObject
 - `GLBManager`：管理場景中已生成的物件集合
-
----
-
-## SpatialMeshBuilder
-
-訂閱 `SpatialDataStore` 的 mesh 事件，在 Server 場景中重建真實世界空間網格的 Unity `MeshCollider`。
-
-- 每筆 `OnMeshUpserted` → 建立或更新 `MeshFilter` + `MeshCollider` GameObject（命名為 `SpatialMesh_{meshId}`）
-- 使用 32-bit index format 支援大型 mesh（> 65,000 頂點）
-- **預設關閉 `MeshRenderer`**（純物理用途）；Inspector 中可開啟 `showDebugMesh` 以視覺化確認傳輸結果
-- 支援物件掉落在真實桌面/地板上而不穿透
 
 ---
 

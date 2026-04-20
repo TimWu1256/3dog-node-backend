@@ -12,14 +12,13 @@ export type JobRow = {
   error: string | null;
   snapshot_status: "none" | "pending" | "processing" | "completed" | "failed";
   snapshot_error: string | null;
-  animation_csharp: string | null;
   created_at: number;
   updated_at: number;
 };
 
 export type ArtifactRow = {
   job_id: string;
-  role: "input_code" | "output_glb" | "output_snapshot";
+  role: "input_code" | "output_glb" | "output_snapshot" | "output_csharp";
   mime_type: string;
   text_content: string | null;
   blob_content: Buffer | null;
@@ -53,7 +52,7 @@ type QueryMap = {
 
   saveArtifact: (params: {
     job_id: string;
-    role: "input_code" | "output_glb" | "output_snapshot";
+    role: "input_code" | "output_glb" | "output_snapshot" | "output_csharp";
     mime_type: string;
     text_content?: string | null;
     blob_content?: Buffer | Uint8Array | null;
@@ -62,17 +61,12 @@ type QueryMap = {
 
   getArtifact: (params: {
     job_id: string;
-    role: "input_code" | "output_glb" | "output_snapshot";
+    role: "input_code" | "output_glb" | "output_snapshot" | "output_csharp";
   }) => Promise<ArtifactRow | null>;
 
   deleteJob: (params: { id: string }) => Promise<boolean>;
 
   listJobs: (params: { limit?: number; offset?: number }) => Promise<JobRow[]>;
-
-  setAnimationCsharp: (params: {
-    id: string;
-    animation_csharp: string | null;
-  }) => Promise<boolean>;
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -233,14 +227,6 @@ export function createDatabase(name: string) {
         return db.prepare(sql).all({ limit, offset }) as JobRow[];
       },
 
-    setAnimationCsharp:
-      ({ db, sql }) =>
-      async ({ id, animation_csharp }) => {
-        const row = db.prepare(sql).get({ id, animation_csharp }) as
-          | { id: string }
-          | undefined;
-        return Boolean(row);
-      },
   });
 }
 
