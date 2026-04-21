@@ -16,9 +16,8 @@ from agents_server.common.tool_server_client import (
 )
 
 
-DEFAULT_ANIMATION_MODEL = os.environ.get("ANIMATION_AGENT_MODEL", "gpt-5.4-mini")
+DEFAULT_ANIMATION_MODEL = os.environ.get("ANIMATION_AGENT_MODEL", "gpt-5.4")
 DEFAULT_REASONING_EFFORT = os.environ.get("ANIMATION_AGENT_REASONING_EFFORT", "medium")
-MAX_CODE_CHARS = int(os.environ.get("ANIMATION_AGENT_MAX_CODE_CHARS", "18000"))
 OPENAI_RESPONSES_URL = os.environ.get(
     "OPENAI_RESPONSES_URL",
     f"{os.environ.get('OPENAI_BASE_URL', 'https://api.openai.com/v1').rstrip('/')}/responses",
@@ -208,7 +207,6 @@ Safety rules:
 
 
 def _build_animation_prompt(bundle: ToolServerAnimationBundle, class_name: str) -> str:
-    code = _truncate(bundle.code, MAX_CODE_CHARS)
     metadata = str(bundle.job_metadata)[:4000]
 
     return f"""
@@ -230,13 +228,15 @@ Tool server job metadata:
 {metadata}
 
 Craft3D generated Three.js code:
-```ts
-{code}
+```js
+{bundle.code}
 ```
 
 Use the snapshot and code to infer useful semantic parts such as head, mouth,
 wing, tail, hand, weapon, root, body, and emitter points. If an exact part is not
 obvious, use the closest semantic hint and let `Part(...)` resolve it at runtime.
+If the code is long, prioritize hierarchy, names, transforms, exporter usage,
+and semantically meaningful child parts over boilerplate.
 """.strip()
 
 
@@ -378,8 +378,3 @@ def _safe_class_name(object_name: str, job_id: str) -> str:
     suffix = re.sub(r"[^A-Za-z0-9]", "", job_id or "")[:8]
     return f"{name}RuntimePlanner{suffix}"
 
-
-def _truncate(text: str, max_chars: int) -> str:
-    if len(text) <= max_chars:
-        return text
-    return text[:max_chars] + "\n// ... truncated for Animation Agent context ..."
