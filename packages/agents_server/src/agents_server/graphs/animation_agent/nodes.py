@@ -1,156 +1,35 @@
-"""Animation Agent for generating Unity runtime planner C#."""
+"""Node functions and LLM helpers for the animation_agent graph."""
 
 from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
-from typing import Any
 
-import httpx
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
 
 from agents_server.common.tool_server_client import (
     ToolServerAnimationBundle,
     fetch_animation_bundle,
     upload_csharp_planner,
 )
+from agents_server.graphs.animation_agent.state import AnimationAgentState, PlannerSource
 
 
 DEFAULT_ANIMATION_MODEL = os.environ.get("ANIMATION_AGENT_MODEL", "gpt-5.4")
 DEFAULT_REASONING_EFFORT = os.environ.get("ANIMATION_AGENT_REASONING_EFFORT", "medium")
-OPENAI_RESPONSES_URL = os.environ.get(
-    "OPENAI_RESPONSES_URL",
-    f"{os.environ.get('OPENAI_BASE_URL', 'https://api.openai.com/v1').rstrip('/')}/responses",
-)
+
+_animation_model: ChatOpenAI | None = None
 
 
-@dataclass(frozen=True)
-class AnimationPlannerResult:
-    job_id: str
-    csharp_ready: bool = False
-    csharp_url: str = ""
-    planner_class_name: str = ""
-    failure_reason: str | None = None
-
-    @property
-    def is_success(self) -> bool:
-        return self.csharp_ready and not self.failure_reason
-
-    def model_dump(self) -> dict[str, Any]:
-        return {
-            "job_id": self.job_id,
-            "csharp_ready": self.csharp_ready,
-            "csharp_url": self.csharp_url,
-            "planner_class_name": self.planner_class_name,
-            "failure_reason": self.failure_reason,
-        }
-
-
-@dataclass(frozen=True)
-class PlannerSource:
-    class_name: str
-    csharp: str
-
-
-async def run_animation_agent(
-    *,
-    job_id: str,
-    object_name: str,
-    object_description: str,
-    user_prompt: str,
-) -> AnimationPlannerResult:
-    """Generate a planner and upload it to the tool server.
-
-    Failure is returned as data so Craft3D object creation can still succeed.
-    """
-
-    if not job_id:
-        return AnimationPlannerResult(job_id="", failure_reason="Missing Craft3D job_id.")
-
-    try:
-        bundle = await fetch_animation_bundle(
-            job_id=job_id,
-            object_name=object_name,
-            object_description=object_description,
-            user_prompt=user_prompt,
+def _get_animation_model() -> ChatOpenAI:
+    global _animation_model
+    if _animation_model is None:
+        _animation_model = ChatOpenAI(
+            model=DEFAULT_ANIMATION_MODEL,
+            reasoning_effort=DEFAULT_REASONING_EFFORT,
         )
-        planner = await generate_runtime_planner(bundle)
-        upload = await upload_csharp_planner(job_id=job_id, csharp=planner.csharp)
-        return AnimationPlannerResult(
-            job_id=job_id,
-            csharp_ready=True,
-            csharp_url=upload.csharp_url,
-            planner_class_name=planner.class_name,
-        )
-    except Exception as exc:
-        return AnimationPlannerResult(
-            job_id=job_id,
-            failure_reason=f"{type(exc).__name__}: {exc}",
-        )
-
-
-async def generate_runtime_planner(bundle: ToolServerAnimationBundle) -> PlannerSource:
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is required for Animation Agent.")
-
-    class_name = _safe_class_name(bundle.object_name, bundle.job_id)
-    prompt = _build_animation_prompt(bundle, class_name)
-
-    request_json = {
-        "model": DEFAULT_ANIMATION_MODEL,
-        "reasoning": {"effort": DEFAULT_REASONING_EFFORT},
-        "input": [
-            {
-                "role": "system",
-                "content": [
-                    {
-                        "type": "input_text",
-                        "text": ANIMATION_AGENT_SYSTEM_PROMPT,
-                    }
-                ],
-            },
-            {
-                "role": "user",
-                "content": [
-                    {"type": "input_text", "text": prompt},
-                    {
-                        "type": "input_image",
-                        "image_url": (
-                            f"data:{bundle.snapshot_mime_type};base64,"
-                            f"{bundle.snapshot_base64}"
-                        ),
-                    },
-                ],
-            },
-        ],
-    }
-
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    if organization := os.environ.get("OPENAI_ORG_ID"):
-        headers["OpenAI-Organization"] = organization
-    if project := os.environ.get("OPENAI_PROJECT_ID"):
-        headers["OpenAI-Project"] = project
-
-    async with httpx.AsyncClient(timeout=120) as client:
-        response = await client.post(OPENAI_RESPONSES_URL, headers=headers, json=request_json)
-        if response.status_code >= 400:
-            raise RuntimeError(
-                f"OpenAI Responses API failed HTTP {response.status_code}: "
-                f"{response.text[:600]}"
-            )
-        response_json = response.json()
-
-    csharp = _sanitize_csharp_for_upload(_extract_response_text(response_json))
-    _validate_generated_csharp(csharp)
-    return PlannerSource(
-        class_name=_class_name_from_csharp(csharp) or class_name,
-        csharp=csharp,
-    )
-
+    return _animation_model
 
 ANIMATION_AGENT_SYSTEM_PROMPT = """
 You are the Mind Reality Animation Agent.
@@ -206,6 +85,96 @@ Safety rules:
 """.strip()
 
 
+# ---------------------------------------------------------------------------
+# LLM call
+# ---------------------------------------------------------------------------
+
+
+async def generate_runtime_planner(bundle: ToolServerAnimationBundle) -> PlannerSource:
+    class_name = _safe_class_name(bundle.object_name, bundle.job_id)
+    prompt = _build_animation_prompt(bundle, class_name)
+
+    response = await _get_animation_model().ainvoke([
+        SystemMessage(content=ANIMATION_AGENT_SYSTEM_PROMPT),
+        HumanMessage(content=[
+            {"type": "text", "text": prompt},
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{bundle.snapshot_mime_type};base64,{bundle.snapshot_base64}",
+                },
+            },
+        ]),
+    ])
+
+    raw_content = response.content
+    if isinstance(raw_content, str):
+        raw = raw_content
+    elif isinstance(raw_content, list):
+        raw = "\n".join(
+            item.get("text", "") if isinstance(item, dict) else str(item)
+            for item in raw_content
+            if not (isinstance(item, dict) and item.get("type") == "thinking")
+        )
+    else:
+        raw = ""
+
+    csharp = _sanitize_csharp_for_upload(raw)
+    _validate_generated_csharp(csharp)
+    return PlannerSource(
+        class_name=_class_name_from_csharp(csharp) or class_name,
+        csharp=csharp,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Graph nodes
+# ---------------------------------------------------------------------------
+
+
+async def fetch_bundle_node(state: AnimationAgentState) -> dict:
+    try:
+        bundle = await fetch_animation_bundle(
+            job_id=state["job_id"],
+            object_name=state["object_name"],
+            object_description=state["object_description"],
+            user_prompt=state["user_prompt"],
+        )
+        return {"bundle": bundle}
+    except Exception as exc:
+        return {"failure_reason": f"{type(exc).__name__}: {exc}"}
+
+
+async def generate_planner_node(state: AnimationAgentState) -> dict:
+    bundle = state.get("bundle")
+    if bundle is None:
+        return {}
+    try:
+        planner = await generate_runtime_planner(bundle)
+        return {"planner": planner}
+    except Exception as exc:
+        return {"failure_reason": f"{type(exc).__name__}: {exc}"}
+
+
+async def upload_planner_node(state: AnimationAgentState) -> dict:
+    planner = state.get("planner")
+    if planner is None:
+        return {}
+    try:
+        upload = await upload_csharp_planner(job_id=state["job_id"], csharp=planner.csharp)
+        return {
+            "csharp_url": upload.csharp_url,
+            "planner_class_name": planner.class_name,
+        }
+    except Exception as exc:
+        return {"failure_reason": f"{type(exc).__name__}: {exc}"}
+
+
+# ---------------------------------------------------------------------------
+# Prompt builder
+# ---------------------------------------------------------------------------
+
+
 def _build_animation_prompt(bundle: ToolServerAnimationBundle, class_name: str) -> str:
     metadata = str(bundle.job_metadata)[:4000]
 
@@ -238,20 +207,6 @@ obvious, use the closest semantic hint and let `Part(...)` resolve it at runtime
 If the code is long, prioritize hierarchy, names, transforms, exporter usage,
 and semantically meaningful child parts over boilerplate.
 """.strip()
-
-
-def _extract_response_text(response: dict[str, Any]) -> str:
-    output_text = response.get("output_text")
-    if output_text:
-        return str(output_text)
-
-    chunks: list[str] = []
-    for item in response.get("output", []) or []:
-        for content in item.get("content", []) or []:
-            text = content.get("text")
-            if text is not None:
-                chunks.append(str(text))
-    return "\n".join(chunks)
 
 
 def _sanitize_csharp_for_upload(text: str) -> str:
@@ -320,6 +275,11 @@ def _trim_to_csharp(text: str) -> str:
     return text[min(starts) :].strip()
 
 
+# ---------------------------------------------------------------------------
+# Validation helpers
+# ---------------------------------------------------------------------------
+
+
 def _validate_generated_csharp(csharp: str) -> None:
     if not csharp:
         raise ValueError("Animation Agent returned empty C#.")
@@ -364,6 +324,11 @@ def _validate_generated_csharp(csharp: str) -> None:
         raise ValueError("Generated planner must not declare a namespace.")
 
 
+# ---------------------------------------------------------------------------
+# Name helpers
+# ---------------------------------------------------------------------------
+
+
 def _class_name_from_csharp(csharp: str) -> str | None:
     match = re.search(r"\bclass\s+([A-Za-z_][A-Za-z0-9_]*)", csharp)
     return match.group(1) if match else None
@@ -377,4 +342,3 @@ def _safe_class_name(object_name: str, job_id: str) -> str:
 
     suffix = re.sub(r"[^A-Za-z0-9]", "", job_id or "")[:8]
     return f"{name}RuntimePlanner{suffix}"
-
