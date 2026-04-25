@@ -1,7 +1,5 @@
-from agents_server.graphs.animation_agent.graph import run_animation_agent
-from agents_server.graphs.animation_agent.state import AnimationPlannerResult
+from agents_server.graphs.animation_agent.graph import animation_agent
 
 __all__ = [
-    "run_animation_agent",
-    "AnimationPlannerResult",
+    "animation_agent",
 ]

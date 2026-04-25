@@ -24,7 +24,7 @@ SNAPSHOT_PATH_TEMPLATE = os.environ.get(
 )
 CSHARP_PATH_TEMPLATE = os.environ.get("TOOL_SERVER_CSHARP_PATH", "/jobs/{id}/csharp")
 
-FETCH_ATTEMPTS = int(os.environ.get("ANIMATION_AGENT_FETCH_ATTEMPTS", "12"))
+FETCH_ATTEMPTS = int(os.environ.get("ANIMATION_AGENT_FETCH_ATTEMPTS", "3"))
 FETCH_INTERVAL_SEC = float(os.environ.get("ANIMATION_AGENT_FETCH_INTERVAL_SEC", "1.5"))
 
 
@@ -37,7 +37,6 @@ class ToolServerAnimationBundle:
     job_id: str
     object_name: str
     object_description: str
-    user_prompt: str
     job_metadata: dict[str, Any]
     code: str
     snapshot_base64: str
@@ -62,7 +61,6 @@ async def fetch_animation_bundle(
     job_id: str,
     object_name: str,
     object_description: str,
-    user_prompt: str,
 ) -> ToolServerAnimationBundle:
     """Fetch metadata, generated Three.js code, and snapshot for animation planning."""
 
@@ -87,7 +85,6 @@ async def fetch_animation_bundle(
         job_id=job_id,
         object_name=object_name,
         object_description=object_description,
-        user_prompt=user_prompt,
         job_metadata=job_metadata,
         code=code,
         snapshot_base64=base64.b64encode(snapshot_bytes).decode("ascii"),
@@ -98,21 +95,19 @@ async def upload_csharp_planner(*, job_id: str, csharp: str) -> UploadedPlanner:
     """Upload generated planner source to the tool-server C# endpoint."""
 
     url = build_tool_server_url(CSHARP_PATH_TEMPLATE, job_id)
-    payload = {"animation_csharp": csharp}
 
     async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(url, json=payload)
+        response = await client.post(
+            url,
+            content=csharp.encode("utf-8"),
+            headers={"Content-Type": "text/plain; charset=utf-8"},
+        )
         if response.status_code >= 400:
             raise ToolServerArtifactError(
                 f"POST {url} failed with HTTP {response.status_code}: {response.text[:400]}"
             )
 
-        try:
-            response_json = response.json()
-        except ValueError:
-            response_json = None
-
-    return UploadedPlanner(csharp_url=url, response_json=response_json)
+    return UploadedPlanner(csharp_url=url)
 
 
 async def _get_json_with_retry(

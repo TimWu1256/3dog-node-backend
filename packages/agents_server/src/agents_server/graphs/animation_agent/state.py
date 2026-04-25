@@ -39,12 +39,9 @@ class PlannerSource:
 class AnimationAgentState(TypedDict):
     # inputs
     job_id: str
-    object_name: str
-    object_description: str
-    user_prompt: str
+    bundle: Any              # ToolServerAnimationBundle
     # intermediate (frozen dataclasses; not checkpointed)
-    bundle: Optional[Any]   # ToolServerAnimationBundle
-    planner: Optional[Any]  # PlannerSource
+    planner: Optional[Any]   # PlannerSource
     # outputs
     csharp_url: str
     planner_class_name: str

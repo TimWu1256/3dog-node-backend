@@ -2,7 +2,8 @@
   "dependencies": ["."],
   "graphs": {
     "craft3d": "agents_server.graphs.craft3d.graph:craft3d_agent",
-    "orchestrator": "agents_server.graphs.orchestrator.graph:orchestrator_agent"
+    "orchestrator": "agents_server.graphs.orchestrator.graph:orchestrator_agent",
+    "animation_agent": "agents_server.graphs.animation_agent.graph:animation_agent"
   },
   "env": ".env",
   "python_version": "3.13"

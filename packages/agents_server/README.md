@@ -1,80 +1,131 @@
-# agents
+# agents_server
 
-LangGraph-based agentic system for generating 3D objects from natural language descriptions, powered by Google Gemini and the [craft3d](../../services/craft3d) rendering service.
+LangGraph-based agentic system for generating 3D objects from natural language descriptions, powered by Google Gemini and OpenAI, using the [craft3d](../../services/craft3d) rendering service.
 
 ## Architecture
 
 ```
-packages/agents/
-├── src/
+packages/agents_server/
+├── src/agents_server/
 │   ├── common/
-│   │   ├── schemas.py          # ObjectProps input model
-│   │   ├── render_client.py    # HTTP client for craft3d /render endpoint
-│   │   ├── instructions.py     # Jinja2 prompt template loader
-│   │   └── utils.py            # Code extraction and error helpers
+│   │   ├── schemas.py              # ObjectProps input model
+│   │   ├── render_client.py        # HTTP client for craft3d /render endpoint
+│   │   ├── tool_server_client.py   # HTTP client for craft3d tool-server endpoints (code, snapshot, csharp)
+│   │   ├── instructions.py         # Jinja2 prompt template loader
+│   │   └── utils.py                # Code extraction and error helpers
 │   └── graphs/
-│       └── craft3d/
-│           ├── graph.py        # StateGraph assembly + public entrypoint
-│           ├── state.py        # Craft3DState TypedDict, Artifact, reducers
-│           ├── nodes.py        # craft_node, render_node, review_node, revise_node
-│           └── edges.py        # review_router conditional edge
-├── langgraph.json              # LangGraph CLI config
+│       ├── orchestrator/
+│       │   ├── graph.py            # StateGraph assembly
+│       │   ├── state.py            # OrchestratorState, SubagentResult, AnimationAgentResult
+│       │   ├── nodes.py            # record_event, invoke_craft3d, invoke_animation_agent
+│       │   └── edges.py            # event_router, TOOL_DISPATCH
+│       ├── craft3d/
+│       │   ├── graph.py            # StateGraph assembly
+│       │   ├── state.py            # Craft3DState, Artifact, reducers
+│       │   ├── nodes.py            # craft, render, review, revise
+│       │   └── edges.py            # review_router conditional edge
+│       └── animation_agent/
+│           ├── graph.py            # StateGraph assembly
+│           ├── state.py            # AnimationAgentState, PlannerSource, AnimationPlannerResult
+│           └── nodes.py            # generate, save; system prompt and C# sanitiser
+├── langgraph.json
 ├── pyproject.toml
-└── .env                        # Environment variables (not committed)
+└── .env
 ```
+
+---
+
+## Graph: `orchestrator`
+
+Context manager for a Unity Realtime API session. Persists across all runs on a thread (one thread = one session).
+
+```
+START → record_event → [event_router]
+                            ├─ tool_call "create_3d_object" → invoke_craft3d → [_after_craft3d]
+                            │                                                       ├─ animation_enabled + craft3d 成功 → invoke_animation_agent → END
+                            │                                                       └─ 否則 ─────────────────────────────────────────────────── END
+                            └─ 其他事件 ────────────────────────────────────────────────────────────────────────────────────────────────────── END
+```
+
+### State (`OrchestratorState`)
+
+| Field | Type | Description |
+|---|---|---|
+| `events` | `Annotated[list, append]` | Full session event log, accumulated across all runs |
+| `current_event` | `dict \| None` | Input event for the current run |
+| `subagent_result` | `dict \| None` | `{ job_id, glb_url, csharp_url, failure_reason }` — Unity reads this |
+| `animation_result` | `dict \| None` | `{ job_id, csharp_ready, csharp_url, planner_class_name, failure_reason }` — audit detail |
+
+Unity reads `GET /threads/{id}/state` to get `subagent_result` (and optionally `animation_result`) after a `tool_call` run.
+
+---
 
 ## Graph: `craft3d`
 
-A four-node iterative refinement loop:
+Iterative refinement loop: generates Three.js TypeScript code from a text description, renders it to GLB, and reviews the PNG snapshot. Invoked by orchestrator as a sub-agent.
 
 ```
-START
-  ↓
-craft_node      — Gemini generates Three.js TypeScript code
-  ↓
-render_node     — POST to craft3d /render → PNG snapshot + job_id; sets glb_url
-  ↓
-review_node     — Gemini reviews the snapshot image
-  ↓
-review_router ──┬── (approved or max 2 revisions) → END
-                └── revise_node (Gemini revises the code)
-                      ↓
-                    render_node  (loop)
+START → craft → render → review → review_router ──┬── (approved or max revisions) → END
+                   ↑                               └── revise ──────────────────────┘ (loop)
 ```
+
+### Models
+
+| Node | Model |
+|---|---|
+| `craft`, `revise` | Google Gemini (`gemini-3-flash-preview`, `thinking_level: low`) |
+| `review` | OpenAI (`gpt-5.4-mini`, `reasoning_effort: low`) |
 
 ### State (`Craft3DState`)
 
 | Field | Type | Description |
 |---|---|---|
 | `input` | `ObjectProps` | Original user request |
-| `artifact_history` | `list[Artifact]` | All attempted versions (append-only) |
+| `artifact_history` | `list[Artifact]` | All attempted versions (custom append reducer) |
 | `current_version` | `str \| None` | Active artifact version pointer |
-| `revise_count` | `int` | Total revision attempts (accumulates) |
-| `job_id` | `str` | Latest successful render job ID (empty if none) |
-| `glb_url` | `str` | GLB download URL set by `render_node` on success |
-| `failure_reason` | `str \| None` | Set by `review_node`; None when approved |
+| `review_count` | `int` | Total review attempts (accumulates) |
+| `job_id` | `str` | Latest successful render job ID |
+| `glb_url` | `str` | GLB download URL; empty if no render succeeded |
+| `csharp_url` | `str` | C# animation script URL; empty until animation_agent succeeds |
+| `failure_reason` | `str \| None` | Set by review on rejection; None on success |
 
 ### Output Schema (`Craft3DOutput`)
-
-What `/runs/wait` and stream endpoints return to clients (does not affect internal state):
 
 | Field | Type | Description |
 |---|---|---|
 | `job_id` | `str` | Empty string if all renders failed |
-| `glb_url` | `str` | Full download URL; empty string if all renders failed |
+| `glb_url` | `str` | Full download URL; empty if all renders failed |
+| `csharp_url` | `str` | C# animation script URL; empty if animation_agent skipped or failed |
 | `failure_reason` | `str \| None` | None on success; last review comment on failure |
 
-### Artifact
+> GLB bytes are **not** stored in state. Unity downloads the GLB via `glb_url` directly from craft3d.
 
-Each iteration produces an `Artifact` with:
-- `version` — monotonically increasing string counter
-- `code` — generated TypeScript source
-- `snapshot` — PNG snapshot grid (16 views); serialised as base64 in JSON
-- `errors` — list of accumulated error messages
-- `review` — `Review(approved, comment)` from Gemini
-- `job_id` — render service job ID (empty if render failed)
+---
 
-> GLB bytes are **not** stored in state. Unity downloads the GLB via `glb_url` from the craft3d service directly.
+## Graph: `animation_agent`
+
+Generates a Unity C# runtime planner for a Craft3D object. Invoked by orchestrator after craft3d succeeds (when `animation_enabled=true`). Not exposed as a LangGraph assistant.
+
+```
+START → generate → save → END
+```
+
+### Model
+
+OpenAI model, configurable via env vars (default `gpt-5.4`, `reasoning_effort: medium`).
+
+### State (`AnimationAgentState`)
+
+| Field | Type | Description |
+|---|---|---|
+| `job_id` | `str` | Craft3D job ID |
+| `bundle` | `ToolServerAnimationBundle` | Fetched artifacts (metadata, Three.js code, snapshot) |
+| `planner` | `PlannerSource \| None` | Intermediate: generated C# + class name |
+| `csharp_url` | `str` | Uploaded planner URL (output) |
+| `planner_class_name` | `str` | Generated class name (output) |
+| `failure_reason` | `str \| None` | Error message; None on success |
+
+---
 
 ## Getting Started
 
@@ -83,7 +134,7 @@ Each iteration produces an `Artifact` with:
 - Python ≥ 3.13
 - [uv](https://docs.astral.sh/uv/) package manager
 - [craft3d](../../services/craft3d) service running on port `3601`
-- `GOOGLE_API_KEY` set in `.env`
+- `GOOGLE_API_KEY` and `OPENAI_API_KEY` set in `.env`
 
 ### Install
 
@@ -94,114 +145,50 @@ uv sync
 
 ### Environment Variables
 
-Create a `.env` file:
-
 ```env
+# LLM API keys
 GOOGLE_API_KEY=your-google-api-key
+OPENAI_API_KEY=your-openai-api-key
 
-# craft3d render endpoint
+# craft3d service
+RENDER_SERVICE_URL=http://localhost:3601
 RENDER_GLB_URL=http://localhost:3601/render
+
+# Animation Agent (optional overrides)
+ANIMATION_AGENT_MODEL=gpt-5.4
+ANIMATION_AGENT_REASONING_EFFORT=medium
 
 # LangSmith tracing (required for LangGraph Studio)
 LANGSMITH_TRACING=true
-LANGSMITH_ENDPOINT=https://api.smith.langchain.com
 LANGSMITH_API_KEY=your-langsmith-api-key
-LANGSMITH_PROJECT="craft3d"
+LANGSMITH_PROJECT=craft3d
 ```
 
 ### Running with LangGraph CLI
 
 ```bash
-# Development mode (hot-reload), served on port 3600
-langgraph dev --port 3600
-
-# Production mode (requires Docker)
-langgraph up
+# Development mode (hot-reload), port 3600
+uv run langgraph dev --host 0.0.0.0 --port 3600 --no-browser
 ```
 
-### Monitoring with LangGraph Studio
+Only `orchestrator` and `craft3d` are exposed as LangGraph assistants. `animation_agent` is internal.
 
-Open the Studio UI in your browser:
+### LangGraph Studio
 
 ```
 https://smith.langchain.com/studio/?baseUrl=http://localhost:3600
 ```
 
-Studio provides:
-- Real-time graph visualization with per-node execution status
-- Full state history and diffs at each step
-- Ability to replay or fork any past run
-
-> Requires a LangSmith account with `LANGSMITH_API_KEY` configured in `.env`.
-
-The `craft3d` graph is exposed as an assistant. Call it via the LangGraph SDK or Studio UI with:
-
-```json
-{
-  "input": {
-    "object_name": "torus knot",
-    "object_description": "A blue metallic torus knot with roughness 0.2"
-  }
-}
-```
-
-### Direct Python Usage (development / testing)
-
-```python
-import asyncio
-from agents_server.common.schemas import ObjectProps
-from agents_server.graphs.craft3d.graph import craft3d_agent
-from agents_server.graphs.craft3d.state import Craft3DState
-
-async def main():
-    initial: Craft3DState = {
-        "input": ObjectProps(object_name="torus knot", object_description="blue metallic"),
-        "artifact_history": [],
-        "current_version": None,
-        "revise_count": 0,
-        "job_id": "",
-        "glb_url": "",
-        "failure_reason": None,
-    }
-    result = await craft3d_agent.ainvoke(initial)
-    print(f"glb_url: {result['glb_url']}")
-    print(f"failure_reason: {result['failure_reason']}")
-
-asyncio.run(main())
-```
-
-## Integration with craft3d
-
-The agents call `POST /render` on the craft3d service:
-
-**Request:**
-```json
-{ "code": "<Three.js TypeScript>", "timeoutSec": 60 }
-```
-
-**Success response:**
-```json
-{ "success": true, "job_id": "...", "glb": "<base64>", "snapshot": "<base64>" }
-```
-
-**Failure response:**
-```json
-{ "success": false, "error": "ReferenceError: ..." }
-```
-
-The render client (`src/common/render_client.py`) decodes the base64 fields back to `bytes`.
+---
 
 ## Prompt Templates
 
-Prompts are loaded from `../../instructions/` via Jinja2:
+Loaded from `../../instructions/` via Jinja2:
 
 | Template | Used by |
 |---|---|
-| `threejs-generation-v2.md` | `craft_node` — initial code generation |
-| `craft3d-review.md` | `review_node` — snapshot quality review |
-| `craft3d-revise.md` | `revise_node` — code revision given feedback |
+| `craft3d-generation-v3.md` | `craft` node — initial code generation |
+| `craft3d-review.md` | `review` node — snapshot quality review |
+| `craft3d-revise.md` | `revise` node — code revision given feedback |
 
-## LLM
-
-Both the craft and review models use **Gemini 3.1 Pro (preview)** with `thinking_level: LOW`.
-Configure via `GOOGLE_API_KEY` in `.env`.
+The Animation Agent system prompt is defined inline in `graphs/animation_agent/nodes.py`.

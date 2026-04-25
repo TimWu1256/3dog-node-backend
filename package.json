@@ -4,6 +4,7 @@
   "private": true,
   "description": "LLM-powered 3D object generation backend — craft3d + LangGraph agents",
   "scripts": {
+    "dev": "concurrently --names \"langgraph,craft3d,dss,realtime-monitor\" \"packages\\\\agents_server\\\\start-dev.cmd\" \"cd services/craft3d && npm run dev\" \"cd services/dss && npm run dev\" \"cd services/realtime-monitor && npm run dev\"",
     "build": "cd services/craft3d && npm run build",
     "test": "cd services/craft3d && npm test",
     "deps:dev": "cd services/craft3d && npm run deps:dev",

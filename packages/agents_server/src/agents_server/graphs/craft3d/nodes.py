@@ -147,7 +147,7 @@ async def _render_artifact(artifact: Artifact) -> Artifact:
         # GLB bytes are NOT stored in state — download via /jobs/{job_id}/glb.
         return artifact.copy_with(snapshot=result.snapshot, job_id=result.job_id)
     except RenderGlbError as exc:
-        return artifact.copy_with(errors=[*artifact.errors, str(exc)])
+        return artifact.copy_with(errors=[*artifact.errors, stringify_error(exc)])
     except Exception as exc:
         return artifact.copy_with(errors=[*artifact.errors, stringify_error(exc)])
 
@@ -157,7 +157,7 @@ async def _review_artifact(artifact: Artifact) -> Artifact:
         "Found error{}:\n\n{}".format(
             "s" if len(artifact.errors) > 1 else "", "\n".join(artifact.errors)
         )
-        if artifact.errors
+        if len(artifact.errors) > 0
         else None
     )
 
@@ -195,28 +195,28 @@ async def _review_artifact(artifact: Artifact) -> Artifact:
 # ---------------------------------------------------------------------------
 
 
-async def craft_node(state: Craft3DState) -> dict:
+async def craft(state: Craft3DState) -> dict:
     version = str(len(state["artifact_history"]) + 1)
     input_props = ObjectProps.model_validate(state["input"]) if isinstance(state["input"], dict) else state["input"]
-    log.info("[%s] craft_node v%s — generating Three.js code", input_props.object_name, version)
+    log.info("[%s] craft v%s — generating Three.js code", input_props.object_name, version)
     artifact = await _create_artifact(version=version, input=input_props)
     if artifact.errors:
-        log.warning("[%s] craft_node v%s — errors: %s", input_props.object_name, version, artifact.errors)
+        log.warning("[%s] craft v%s — errors: %s", input_props.object_name, version, artifact.errors)
     else:
-        log.info("[%s] craft_node v%s — code generated (%d chars)", input_props.object_name, version, len(artifact.code or ""))
+        log.info("[%s] craft v%s — code generated (%d chars)", input_props.object_name, version, len(artifact.code or ""))
     return {"artifact_history": artifact, "current_version": version}
 
 
-async def render_node(state: Craft3DState) -> dict:
+async def render(state: Craft3DState) -> dict:
     current = get_current_artifact(state)
     if current is None:
         return {}
-    log.info("[%s] render_node v%s — rendering GLB", current.input.object_name, current.version)
+    log.info("[%s] render v%s — rendering GLB", current.input.object_name, current.version)
     rendered = await _render_artifact(current)
     if rendered.errors and rendered.errors != current.errors:
-        log.warning("[%s] render_node v%s — errors: %s", current.input.object_name, current.version, rendered.errors)
+        log.warning("[%s] render v%s — errors: %s", current.input.object_name, current.version, rendered.errors)
     elif rendered.job_id:
-        log.info("[%s] render_node v%s — GLB ready, job_id=%s", current.input.object_name, current.version, rendered.job_id)
+        log.info("[%s] render v%s — GLB ready, job_id=%s", current.input.object_name, current.version, rendered.job_id)
     update: dict = {"artifact_history": replace_artifact_in_history(state["artifact_history"], rendered)}
     if rendered.job_id:
         update["job_id"] = rendered.job_id
@@ -224,33 +224,34 @@ async def render_node(state: Craft3DState) -> dict:
     return update
 
 
-async def review_node(state: Craft3DState) -> dict:
+async def review(state: Craft3DState) -> dict:
     current = get_current_artifact(state)
     if current is None:
         return {}
-    log.info("[%s] review_node v%s — reviewing snapshot", current.input.object_name, current.version)
+    log.info("[%s] review v%s — reviewing snapshot", current.input.object_name, current.version)
     reviewed = await _review_artifact(current)
     asyncio.ensure_future(_debug_save_artifact(reviewed))
     if reviewed.review is not None:
         if reviewed.review.approved:
-            log.info("[%s] review_node v%s — APPROVED", current.input.object_name, current.version)
+            log.info("[%s] review v%s — APPROVED", current.input.object_name, current.version)
         else:
-            log.info("[%s] review_node v%s — REJECTED: %s", current.input.object_name, current.version, reviewed.review.comment[:120])
+            log.info("[%s] review v%s — REJECTED: %s", current.input.object_name, current.version, reviewed.review.comment[:120])
     update: dict = {"artifact_history": replace_artifact_in_history(state["artifact_history"], reviewed)}
     if reviewed.review is not None:
-        update["failure_reason"] = None if reviewed.review.approved else reviewed.review.comment
+        # Allow output if render succeeded, even when review rejects it
+        update["failure_reason"] = None if (reviewed.review.approved or reviewed.job_id) else reviewed.review.comment
     update["review_count"] = 1  # reducer: current + 1
     return update
 
 
-async def revise_node(state: Craft3DState) -> dict:
+async def revise(state: Craft3DState) -> dict:
     current = get_current_artifact(state)
     if current is None:
         raise ValueError("No current artifact found for revision")
 
     version = str(len(state["artifact_history"]) + 1)
     input_props = ObjectProps.model_validate(state["input"]) if isinstance(state["input"], dict) else state["input"]
-    log.info("[%s] revise_node v%s — revising based on review feedback", input_props.object_name, version)
+    log.info("[%s] revise v%s — revising based on review feedback", input_props.object_name, version)
     artifact = await _create_artifact(
         version=version,
         input=input_props,

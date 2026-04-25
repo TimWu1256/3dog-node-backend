@@ -10,7 +10,6 @@ from langchain_openai import ChatOpenAI
 
 from agents_server.common.tool_server_client import (
     ToolServerAnimationBundle,
-    fetch_animation_bundle,
     upload_csharp_planner,
 )
 from agents_server.graphs.animation_agent.state import AnimationAgentState, PlannerSource
@@ -90,7 +89,7 @@ Safety rules:
 # ---------------------------------------------------------------------------
 
 
-async def generate_runtime_planner(bundle: ToolServerAnimationBundle) -> PlannerSource:
+async def _generate_runtime_planner(bundle: ToolServerAnimationBundle) -> PlannerSource:
     class_name = _safe_class_name(bundle.object_name, bundle.job_id)
     prompt = _build_animation_prompt(bundle, class_name)
 
@@ -132,31 +131,16 @@ async def generate_runtime_planner(bundle: ToolServerAnimationBundle) -> Planner
 # ---------------------------------------------------------------------------
 
 
-async def fetch_bundle_node(state: AnimationAgentState) -> dict:
+async def generate(state: AnimationAgentState) -> dict:
+    bundle = state["bundle"]
     try:
-        bundle = await fetch_animation_bundle(
-            job_id=state["job_id"],
-            object_name=state["object_name"],
-            object_description=state["object_description"],
-            user_prompt=state["user_prompt"],
-        )
-        return {"bundle": bundle}
-    except Exception as exc:
-        return {"failure_reason": f"{type(exc).__name__}: {exc}"}
-
-
-async def generate_planner_node(state: AnimationAgentState) -> dict:
-    bundle = state.get("bundle")
-    if bundle is None:
-        return {}
-    try:
-        planner = await generate_runtime_planner(bundle)
+        planner = await _generate_runtime_planner(bundle)
         return {"planner": planner}
     except Exception as exc:
         return {"failure_reason": f"{type(exc).__name__}: {exc}"}
 
 
-async def upload_planner_node(state: AnimationAgentState) -> dict:
+async def save(state: AnimationAgentState) -> dict:
     planner = state.get("planner")
     if planner is None:
         return {}
@@ -186,9 +170,6 @@ Object name:
 
 Object description:
 {bundle.object_description}
-
-Original user request:
-{bundle.user_prompt}
 
 Preferred class name:
 {class_name}

@@ -107,12 +107,12 @@ class Craft3DState(TypedDict):
     artifact_history: Annotated[list[Artifact], _artifact_history_reducer]
     current_version: Optional[str]
     review_count: Annotated[int, _review_count_reducer]
-    # Top-level fields set by render_node / review_node for fast access
+    # Top-level fields set by render / review for fast access
     # without parsing artifact_history.
     job_id: str
     glb_url: str              # download URL; empty if no render has succeeded yet
     csharp_url: str           # C# animation script URL; empty until csharp agent is developed
-    failure_reason: Optional[str]  # set by review_node when not approved; None on success
+    failure_reason: Optional[str]  # set by review when not approved; None on success
 
 
 # ---------------------------------------------------------------------------

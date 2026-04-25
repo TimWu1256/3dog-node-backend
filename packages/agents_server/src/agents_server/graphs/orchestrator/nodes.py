@@ -15,7 +15,8 @@ import logging
 from datetime import datetime, timezone
 
 from agents_server.common.schemas import ObjectProps
-from agents_server.graphs.animation_agent import run_animation_agent
+from agents_server.common.tool_server_client import fetch_animation_bundle
+from agents_server.graphs.animation_agent import animation_agent
 from agents_server.graphs.craft3d.graph import craft3d_agent
 from agents_server.graphs.orchestrator.state import (
     AnimationAgentResult,
@@ -145,13 +146,32 @@ async def invoke_animation_agent_node(state: OrchestratorState) -> dict:
             job_id,
             object_name,
         )
-        generated = await run_animation_agent(
-            job_id=job_id,
-            object_name=object_name,
-            object_description=object_description,
-            user_prompt=object_description,
-        )
-        result = AnimationAgentResult(**generated.model_dump())
+        try:
+            bundle = await fetch_animation_bundle(
+                job_id=job_id,
+                object_name=object_name,
+                object_description=object_description,
+            )
+            raw = await animation_agent.ainvoke({
+                "job_id": job_id,
+                "bundle": bundle,
+                "planner": None,
+                "csharp_url": "",
+                "planner_class_name": "",
+                "failure_reason": None,
+            })
+            result = AnimationAgentResult(
+                job_id=job_id,
+                csharp_ready=bool(raw.get("csharp_url")),
+                csharp_url=raw.get("csharp_url", ""),
+                planner_class_name=raw.get("planner_class_name", ""),
+                failure_reason=raw.get("failure_reason"),
+            )
+        except Exception as exc:
+            result = AnimationAgentResult(
+                job_id=job_id,
+                failure_reason=f"{type(exc).__name__}: {exc}",
+            )
 
     if result.csharp_url:
         subagent_result["csharp_url"] = result.csharp_url

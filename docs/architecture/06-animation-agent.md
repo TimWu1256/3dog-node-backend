@@ -13,7 +13,7 @@ create_3d_object(animation_enabled=true)
   -> Animation Agent fetches /jobs/:id, /jobs/:id/code, /jobs/:id/snapshot
   -> Animation Agent asks OpenAI for one plain C# planner file
   -> backend POSTs { animation_csharp } to /jobs/:id/csharp
-  -> orchestrator writes csharp_url back to subagent_result
+  -> orchestrator writes csharp_url + planner_class_name back to subagent_result / animation_result
   -> Unity server imports GLB and fetches csharp_url
 ```
 
@@ -22,6 +22,15 @@ object generation still completes normally.
 
 If Animation Agent fails, object generation still completes. The failure is
 recorded in `animation_result.failure_reason`.
+
+## LLM
+
+The Animation Agent uses OpenAI. Model and reasoning effort are configurable via environment variables.
+
+| Env var | Default | Description |
+|---------|---------|-------------|
+| `ANIMATION_AGENT_MODEL` | `gpt-5.4` | OpenAI model ID |
+| `ANIMATION_AGENT_REASONING_EFFORT` | `medium` | Reasoning effort (`low` / `medium` / `high`) |
 
 ## Tool server contract
 
@@ -35,19 +44,13 @@ POST /jobs/:id/csharp
 GET  /jobs/:id/csharp
 ```
 
-The upload body is:
+The upload body is plain text (`Content-Type: text/plain; charset=utf-8`):
 
-```json
-{ "animation_csharp": "using System.Collections; ..." }
+```
+using System.Collections; ...
 ```
 
-The C# GET response includes a compatibility alias only for C# naming:
-
-```json
-{
-  "animation_csharp": "...",
-}
-```
+The C# GET response is also plain text.
 
 Do not use `code` for C# planner source. In this backend, `code` means the
 Craft3D JavaScript/Three.js source returned by `GET /jobs/:id/code`.
@@ -67,12 +70,32 @@ Generated code should:
 
 - Use `using System;`, `using System.Collections;`, and `using UnityEngine;`.
 - Define exactly one `public sealed class ... : RuntimeGeneratedPlanner`.
-- Use `IEnumerator` coroutines.
+- Start playback in `OnEnable` and stop in `OnDisable`.
+- Use `IEnumerator` coroutines for all time-based behaviour.
 - Resolve child parts with `Transform part = Part("semantic_hint");`.
 - Use `PlannerAnimationActions` and `PlannerTimeline`.
 - Avoid scene-wide operations, file/network IO, reflection, threads, and UnityEditor APIs.
 
-Method units are explicit in the Animation Agent prompt:
+Available actions (all `IEnumerator`):
+
+```
+PlannerAnimationActions.Wait(float seconds)
+PlannerAnimationActions.MoveLocal(Transform target, Vector3 offset, float seconds)
+PlannerAnimationActions.MoveWorld(Transform target, Vector3 offset, float seconds)
+PlannerAnimationActions.RotateLocal(Transform target, Vector3 eulerOffset, float seconds)
+PlannerAnimationActions.SwingLocal(Transform target, Vector3 eulerAmplitude, float seconds, float cycles)
+PlannerAnimationActions.ScaleLocal(Transform target, Vector3 scaleMultiplier, float seconds)
+PlannerAnimationActions.PlayEffect(Transform emitter, string effectType, float rangeMeters, float intensity, float seconds)
+PlannerAnimationActions.FireBreath(Transform emitter, float rangeMeters, float seconds, float headSwingDegrees, Transform swingTarget)
+PlannerTimeline.Sequence(params IEnumerator[] actions)
+PlannerTimeline.ParallelWaitAll(MonoBehaviour owner, params IEnumerator[] actions)
+PlannerTimeline.Repeat(int count, Func<IEnumerator> actionFactory)
+PlannerTimeline.Loop(Func<IEnumerator> actionFactory)
+```
+
+Valid `effectType` values: `fire`, `beam`, `explosion`, `trail`, `smoke`, `sparks`, `shockwave`, `poison`, `ice`, `electric`, `magic`, `dust`.
+
+Method units:
 
 - `seconds`: seconds as `float`.
 - `cycles`: oscillation count as `float`.

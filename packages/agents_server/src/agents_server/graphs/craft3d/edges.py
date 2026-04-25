@@ -20,4 +20,4 @@ def review_router(state: Craft3DState) -> str:
     if artifact.review.approved or state["review_count"] >= MAX_REVIEWS:
         return END
 
-    return "revise_node"
+    return "revise"

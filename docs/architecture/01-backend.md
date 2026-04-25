@@ -47,8 +47,10 @@ LangGraph Studio UI 可在開發時透過 `http://localhost:2024` 存取。
 
 ```
 START → record_event → [event_router]
-                            ├─ tool_call "create_3d_object" → invoke_craft3d (sub-agent) → END
-                            └─ 其他事件（transcript, transcript_done）──────────────────── END
+                            ├─ tool_call "create_3d_object" → invoke_craft3d → [_after_craft3d]
+                            │                                                       ├─ animation_enabled + craft3d 成功 → invoke_animation_agent → END
+                            │                                                       └─ 否則 ─────────────────────────────────────────────────── END
+                            └─ 其他事件（transcript, transcript_done）──────────────────────────────────────────────────────────────────── END
 ```
 
 #### 節點職責
@@ -57,6 +59,7 @@ START → record_event → [event_router]
 |------|------|
 | `record_event` | 將 `current_event` 追加到持久化 `events` 日誌 |
 | `invoke_craft3d` | 以 sub-agent 方式呼叫 craft3d graph；記錄 `tool_result` 事件；設定 `subagent_result` |
+| `invoke_animation_agent` | 從 tool server 取得 animation bundle，呼叫 animation_agent graph；設定 `animation_result`；將 `csharp_url` 寫回 `subagent_result` |
 
 #### State（`OrchestratorState`）
 
@@ -65,6 +68,7 @@ START → record_event → [event_router]
 | `events` | Annotated[list, append] — 跨所有 run 累積的事件日誌 |
 | `current_event` | 當前 run 的輸入事件（每次 run 覆寫） |
 | `subagent_result` | 最後一次工具呼叫的 sub-agent 結果（`job_id`, `glb_url`, `csharp_url`, `failure_reason`） |
+| `animation_result` | Animation Agent 的詳細結果（`job_id`, `csharp_ready`, `csharp_url`, `planner_class_name`, `failure_reason`）；debug/audit 用，Unity 仍從 `subagent_result.csharp_url` 取值 |
 
 #### 收集的事件類型
 
@@ -77,13 +81,13 @@ START → record_event → [event_router]
 
 > Delta 事件（音訊、逐字轉錄 delta）**不記錄**。
 
-**Output Schema（`OrchestratorOutput`）：** Unity 讀取 `GET /threads/{id}/state` 取得 `subagent_result { job_id, glb_url, csharp_url, failure_reason }`。`csharp_url` 在 csharp agent 開發完成前為空字串。
+**Output Schema（`OrchestratorOutput`）：** Unity 讀取 `GET /threads/{id}/state` 取得 `subagent_result { job_id, glb_url, csharp_url, failure_reason }` 及 `animation_result { job_id, csharp_ready, csharp_url, planner_class_name, failure_reason }`。`csharp_url` 在 Animation Agent 成功後填入；失敗或未啟用時為空字串。
 
 ---
 
 ### craft3d graph
 
-使用 Google Gemini 以迭代循環方式從文字描述生成 3D 物件程式碼。由 orchestrator 以 sub-agent 方式呼叫，不直接對外服務。
+以迭代循環方式從文字描述生成 3D 物件程式碼。craft/revise 節點使用 Google Gemini，review 節點使用 OpenAI。由 orchestrator 以 sub-agent 方式呼叫，不直接對外服務。
 
 #### Graph 結構
 
@@ -98,9 +102,9 @@ START → craft_node → render_node → review_node → review_router
 
 | 節點 | 職責 |
 |------|------|
-| `craft_node` | Gemini 生成 Three.js TypeScript 程式碼 |
+| `craft_node` | Gemini（gemini-3-flash-preview）生成 Three.js TypeScript 程式碼 |
 | `render_node` | 呼叫 craft3d `POST /render`，取得 PNG 快照 + job_id；設定 `glb_url` |
-| `review_node` | Gemini 檢視 16 視角快照，判斷是否通過；設定 `failure_reason` |
+| `review_node` | OpenAI（gpt-5.4-mini）檢視 16 視角快照，判斷是否通過；設定 `failure_reason` |
 | `revise_node` | Gemini 根據審查意見修訂程式碼 |
 
 #### Output Schema（`Craft3DOutput`）
