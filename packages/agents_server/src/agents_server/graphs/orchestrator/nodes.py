@@ -64,13 +64,12 @@ async def invoke_craft3d_node(state: OrchestratorState) -> dict:
     runs the craft3d graph as a sub-agent (blocking until completion), then
     records a tool_result event and returns the SubagentResult.
     """
-    object_name, object_description, animation_enabled = _extract_object_request(state)
+    object_name, object_description = _extract_object_request(state)
 
     log.info(
-        "orchestrator: invoking craft3d sub-agent — name=%r description=%r animation_enabled=%r",
+        "orchestrator: invoking craft3d sub-agent — name=%r description=%r",
         object_name,
         object_description,
-        animation_enabled,
     )
 
     try:
@@ -81,7 +80,6 @@ async def invoke_craft3d_node(state: OrchestratorState) -> dict:
                 "input": ObjectProps(
                     object_name=object_name,
                     object_description=object_description,
-                    animation_enabled=animation_enabled,
                 )
             }
         )
@@ -128,14 +126,9 @@ async def invoke_animation_agent_node(state: OrchestratorState) -> dict:
     subagent_result = dict(state.get("subagent_result") or {})
     job_id = subagent_result.get("job_id") or ""
     glb_url = subagent_result.get("glb_url") or ""
-    object_name, object_description, animation_enabled = _extract_object_request(state)
+    object_name, object_description = _extract_object_request(state)
 
-    if not animation_enabled:
-        result = AnimationAgentResult(
-            job_id=job_id,
-            failure_reason="animation_enabled is false; Animation Agent skipped.",
-        )
-    elif not job_id or not glb_url:
+    if not job_id or not glb_url:
         result = AnimationAgentResult(
             job_id=job_id,
             failure_reason="Craft3D did not produce a successful job; Animation Agent skipped.",
@@ -199,7 +192,7 @@ async def invoke_animation_agent_node(state: OrchestratorState) -> dict:
     }
 
 
-def _extract_object_request(state: OrchestratorState) -> tuple[str, str, bool]:
+def _extract_object_request(state: OrchestratorState) -> tuple[str, str]:
     event = state.get("current_event") or {}
     data = event.get("data") or {}
     arguments = data.get("arguments") or {}
@@ -208,5 +201,4 @@ def _extract_object_request(state: OrchestratorState) -> tuple[str, str, bool]:
     object_description: str = (
         arguments.get("object_description") or arguments.get("description") or ""
     )
-    animation_enabled: bool = bool(arguments.get("animation_enabled", False))
-    return object_name, object_description, animation_enabled
+    return object_name, object_description

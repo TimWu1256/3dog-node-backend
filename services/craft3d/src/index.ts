@@ -3,7 +3,7 @@ import "dotenv/config";
 if (!process.env.DEBUG) process.env.DEBUG = "*,-pw:*";
 
 import debug from "debug";
-import { createServer } from "./server.js";
+import { createServer, setupGracefulShutdown } from "./server.js";
 import { connect } from "./db/index.js";
 import { jobsRouter } from "./routers/jobs.js";
 import { renderRouter } from "./routers/render.js";
@@ -33,7 +33,8 @@ async function main() {
   });
 
   const port = parseInt(process.env.PORT ?? "3601", 10);
-  serve({ fetch: app.fetch, port });
+  const server = serve({ fetch: app.fetch, port });
+  setupGracefulShutdown(server);
   log("listening on port %d", port);
 }
 

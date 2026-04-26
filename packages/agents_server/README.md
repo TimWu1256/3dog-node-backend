@@ -42,8 +42,8 @@ Context manager for a Unity Realtime API session. Persists across all runs on a 
 ```
 START → record_event → [event_router]
                             ├─ tool_call "create_3d_object" → invoke_craft3d → [_after_craft3d]
-                            │                                                       ├─ animation_enabled + craft3d 成功 → invoke_animation_agent → END
-                            │                                                       └─ 否則 ─────────────────────────────────────────────────── END
+                            │                                                       ├─ craft3d 成功 → invoke_animation_agent → END
+                            │                                                       └─ 否則 ─────────────────────── END
                             └─ 其他事件 ────────────────────────────────────────────────────────────────────────────────────────────────────── END
 ```
 
@@ -104,7 +104,7 @@ START → craft → render → review → review_router ──┬── (approve
 
 ## Graph: `animation_agent`
 
-Generates a Unity C# runtime planner for a Craft3D object. Invoked by orchestrator after craft3d succeeds (when `animation_enabled=true`). Not exposed as a LangGraph assistant.
+Generates a Unity C# runtime planner for a Craft3D object. Invoked by orchestrator after craft3d succeeds. Not exposed as a LangGraph assistant.
 
 ```
 START → generate → save → END

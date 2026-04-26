@@ -43,7 +43,7 @@
 - System prompt 從 `StreamingAssets/instructions/space-wizard.md` 讀取
 - 向 OpenAI 登錄兩個 tool：
   - `create_3d_object`（`object_name`, `object_description`）→ `ObjectGenerationHandler.StartGenerationProcess()`
-  - `capture_photo`（`prompt?`）→ `CapturePhotoHandler.StartCapture()`，透過 GenAI WebRTC DataChannel 廣播截圖請求，收集所有 Client 回應後批量注入對話
+  - `capture_photo`（無參數）→ `CapturePhotoHandler.StartCapture()`，透過 GenAI WebRTC DataChannel 廣播截圖請求，收集所有 Client 回應後批量注入對話
 - 收到 tool call 後透過系統訊息告知 AI 進度
 
 ---
@@ -75,7 +75,7 @@ SpaceWizard 訂閱 AudioDuplex 事件，雙向橋接到 OpenAI Realtime WebSocke
 2. Poll `GET /threads/{sessionThreadId}/runs/{runId}` — 等待 orchestrator 完成（內含 craft3d sub-agent）
 3. `GET /threads/{sessionThreadId}/state` → `values.subagent_result { job_id, glb_url, csharp_url, failure_reason }`
 4. 若 `glb_url` 非空 → 交給 `GLBImporter` 從 URL 匯入場景；否則呼叫 `onError(failure_reason)`
-4b. 若 `animation_enabled` 為 true 且 `csharp_url` 非空 → `GET {csharp_url}` 取得 C# 動畫腳本（**目前為 TODO**：csharp agent 及 Unity 端編譯組件尚未開發）
+4b. 若 `csharp_url` 非空 → `GET {csharp_url}` 取得 C# 動畫腳本並附加至物件
 
 ### 事件記錄（fire-and-forget）
 

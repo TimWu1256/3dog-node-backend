@@ -48,8 +48,8 @@ LangGraph Studio UI 可在開發時透過 `http://localhost:2024` 存取。
 ```
 START → record_event → [event_router]
                             ├─ tool_call "create_3d_object" → invoke_craft3d → [_after_craft3d]
-                            │                                                       ├─ animation_enabled + craft3d 成功 → invoke_animation_agent → END
-                            │                                                       └─ 否則 ─────────────────────────────────────────────────── END
+                            │                                                       ├─ craft3d 成功 → invoke_animation_agent → END
+                            │                                                       └─ 否則 ─────────────────────────── END
                             └─ 其他事件（transcript, transcript_done）──────────────────────────────────────────────────────────────────── END
 ```
 

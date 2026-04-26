@@ -6,19 +6,16 @@ The Unity server remains the source of truth for planner runtime APIs.
 ## Flow
 
 ```text
-create_3d_object(animation_enabled=true)
+create_3d_object(object_name, object_description)
   -> orchestrator.invoke_craft3d
   -> craft3d returns job_id + glb_url
-  -> orchestrator.invoke_animation_agent
+  -> orchestrator.invoke_animation_agent  (always, when craft3d succeeds)
   -> Animation Agent fetches /jobs/:id, /jobs/:id/code, /jobs/:id/snapshot
   -> Animation Agent asks OpenAI for one plain C# planner file
   -> backend POSTs { animation_csharp } to /jobs/:id/csharp
   -> orchestrator writes csharp_url + planner_class_name back to subagent_result / animation_result
   -> Unity server imports GLB and fetches csharp_url
 ```
-
-If `animation_enabled` is false, the Animation Agent is skipped and Craft3D
-object generation still completes normally.
 
 If Animation Agent fails, object generation still completes. The failure is
 recorded in `animation_result.failure_reason`.

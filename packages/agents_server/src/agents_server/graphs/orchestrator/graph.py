@@ -46,17 +46,10 @@ _builder.add_conditional_edges(
     [*TOOL_DISPATCH.values(), END],
 )
 
-# Craft3D can optionally continue to the Animation Agent when animation_enabled
-# is set on the original create_3d_object tool call.
 def _after_craft3d(state: OrchestratorState) -> str:
-    event = state.get("current_event") or {}
-    data = event.get("data") or {}
-    arguments = data.get("arguments") or {}
     result = state.get("subagent_result") or {}
-
-    animation_enabled = bool(arguments.get("animation_enabled", False))
     craft3d_succeeded = bool(result.get("job_id")) and bool(result.get("glb_url"))
-    return "invoke_animation_agent" if animation_enabled and craft3d_succeeded else END
+    return "invoke_animation_agent" if craft3d_succeeded else END
 
 
 _builder.add_conditional_edges(
