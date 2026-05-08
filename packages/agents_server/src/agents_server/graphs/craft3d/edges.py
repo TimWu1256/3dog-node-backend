@@ -17,7 +17,8 @@ def review_router(state: Craft3DState) -> str:
     if artifact.review is None:
         raise ValueError("No review was done.")
 
-    if artifact.review.approved or state["review_count"] >= MAX_REVIEWS:
+    effective_max = state.get("max_reviews") or MAX_REVIEWS
+    if artifact.review.approved or state["review_count"] >= effective_max:
         return END
 
     return "revise"

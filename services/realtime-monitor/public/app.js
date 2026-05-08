@@ -72,6 +72,15 @@ let globalWsReconnectTimer = null;
 const ALL_CATS = ['session', 'message', 'text', 'transcript', 'audio', 'vad', 'response', 'tool', 'capture', 'status', 'error', 'event'];
 const activeFilters = new Set(ALL_CATS);
 
+// Delta filter state
+let hideDelta = true;
+
+// Audio accumulation state
+let audioInAccumEl  = null;
+let audioInChunks   = 0;
+let audioOutAccumEl = null;
+let audioOutChunks  = 0;
+
 // ──────────────────────────────────────────────────────────────────────────
 // Filter chips
 // ──────────────────────────────────────────────────────────────────────────
@@ -86,8 +95,27 @@ document.querySelectorAll('.filter-chip').forEach(btn => {
       btn.classList.remove('inactive');
     }
     document.querySelectorAll('.log-entry').forEach(el => {
-      el.style.display = activeFilters.has(el.dataset.cat) ? '' : 'none';
+      const catHidden   = !activeFilters.has(el.dataset.cat);
+      const deltaHidden = hideDelta && el.dataset.delta === 'true';
+      el.style.display = (catHidden || deltaHidden) ? 'none' : '';
     });
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// Done-only toggle
+// ──────────────────────────────────────────────────────────────────────────
+const btnDoneOnly = document.getElementById('btn-done-only');
+btnDoneOnly.addEventListener('click', () => {
+  hideDelta = !hideDelta;
+  if (hideDelta) {
+    btnDoneOnly.className = 'text-xs px-1.5 py-px rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/30 font-mono transition-colors duration-150';
+  } else {
+    btnDoneOnly.className = 'text-xs px-1.5 py-px rounded-md bg-zinc-800 text-zinc-500 border border-zinc-700 font-mono hover:text-zinc-300 transition-colors duration-150';
+  }
+  document.querySelectorAll('.log-entry[data-delta="true"]').forEach(el => {
+    const catHidden = !activeFilters.has(el.dataset.cat);
+    el.style.display = (hideDelta || catHidden) ? 'none' : '';
   });
 });
 
@@ -255,7 +283,7 @@ function categorize(dir, data) {
     case 'response.audio_transcript.delta':
       return { cat: 'transcript', summary: `"${data.delta}"` };
     case 'response.audio_transcript.done':
-      return { cat: 'transcript', summary: `Transcript done: "${(data.transcript || '').slice(0, 80)}"` };
+      return { cat: 'transcript', summary: `Transcript done: "${data.transcript || ''}"` };
     case 'response.function_call_arguments.delta':
       return { cat: 'tool', summary: `fn args delta: "${data.delta}"` };
     case 'response.function_call_arguments.done':
@@ -277,20 +305,75 @@ function truncateLargeFields(obj) {
   }));
 }
 
+function isDeltaEvent(data) {
+  const t = (data && data.type) || '';
+  return t.endsWith('.delta') || t === 'input_audio_buffer.append';
+}
+
 function appendLog({ dir, ts, data }) {
+  const t = (data && data.type) || '';
+
+  // ── Audio accumulation: input buffer append ──
+  if (t === 'input_audio_buffer.append') {
+    if (audioInAccumEl) {
+      audioInChunks++;
+      const s = audioInAccumEl.querySelector('[data-accum-summary]');
+      if (s) s.textContent = `Audio input · ${audioInChunks} chunks`;
+      return;
+    }
+    audioInChunks = 1;
+    // fall through — create the first accumulation entry
+  }
+
+  // ── Audio accumulation: output audio delta ──
+  if (t === 'response.audio.delta') {
+    if (audioOutAccumEl) {
+      audioOutChunks++;
+      const s = audioOutAccumEl.querySelector('[data-accum-summary]');
+      if (s) s.textContent = `Audio output · ${audioOutChunks} chunks`;
+      return;
+    }
+    audioOutChunks = 1;
+    // fall through — create the first accumulation entry
+  }
+
+  // ── Reset audio accum refs on terminal events ──
+  if (t === 'input_audio_buffer.committed' || t === 'input_audio_buffer.cleared') {
+    audioInAccumEl = null;
+    audioInChunks  = 0;
+  }
+  if (t === 'response.audio.done') {
+    audioOutAccumEl = null;
+    audioOutChunks  = 0;
+  }
+
+  // ── Done-only filter ──
+  if (hideDelta && isDeltaEvent(data)) return;
+
+  // ── Build entry ──
   logEmpty.style.display = 'none';
   const dcfg = DIR_CFG[dir] || DIR_CFG.sys;
   const { cat, summary, imageDataUri } = categorize(dir, data);
   const summaryColor = CAT_COLOR[cat] || CAT_COLOR.default;
   const timeStr = ts ? new Date(ts).toISOString().slice(11, 23) : '--';
+  const isDelta = isDeltaEvent(data);
+
+  const displaySummary =
+    t === 'input_audio_buffer.append' ? 'Audio input · 1 chunk' :
+    t === 'response.audio.delta'      ? 'Audio output · 1 chunk' :
+    summary;
 
   const el = document.createElement('div');
   el.className = 'log-entry group flex items-start gap-2.5 px-3 py-1.5 rounded-lg hover:bg-zinc-900/70 transition-colors duration-150';
   el.dataset.dir = dir;
   el.dataset.cat = cat;
+  if (isDelta) el.dataset.delta = 'true';
 
   if (allExpanded) el.classList.add('expanded');
-  if (!activeFilters.has(cat)) el.style.display = 'none';
+  if (!activeFilters.has(cat) || (hideDelta && isDelta)) el.style.display = 'none';
+
+  const isAccum = t === 'input_audio_buffer.append' || t === 'response.audio.delta';
+  const summaryAttr = isAccum ? ' data-accum-summary' : '';
 
   const imgHtml = imageDataUri
     ? `<img src="${imageDataUri}" onclick="event.stopPropagation()" class="mt-2 max-w-xs rounded-lg border border-zinc-700 cursor-default" />`
@@ -301,7 +384,7 @@ function appendLog({ dir, ts, data }) {
     <div class="flex-1 min-w-0">
       <div class="flex items-baseline gap-1.5 min-w-0">
         <span class="text-xs px-1 py-px rounded bg-zinc-800 text-zinc-500 font-mono shrink-0 leading-tight">${esc(cat)}</span>
-        <span class="text-sm ${summaryColor} truncate leading-snug">${esc(summary)}</span>
+        <span class="text-sm ${summaryColor} leading-snug ${cat === 'transcript' ? 'whitespace-normal break-words' : 'truncate'}"${summaryAttr}>${esc(displaySummary)}</span>
       </div>
       ${imgHtml}
       <pre class="hidden mt-1.5 text-xs text-zinc-400 bg-zinc-900 border border-zinc-800 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap break-all max-h-48 leading-relaxed select-text">${esc(JSON.stringify(truncateLargeFields(data), null, 2))}</pre>
@@ -311,6 +394,9 @@ function appendLog({ dir, ts, data }) {
 
   el.addEventListener('click', () => el.classList.toggle('expanded'));
   logList.appendChild(el);
+
+  if (t === 'input_audio_buffer.append') audioInAccumEl  = el;
+  if (t === 'response.audio.delta')      audioOutAccumEl = el;
 
   const { scrollTop, scrollHeight, clientHeight } = logContainer;
   if (scrollHeight - scrollTop - clientHeight < 80) {
@@ -371,6 +457,10 @@ function clearLog() {
   logEmpty.style.display = 'flex';
   allExpanded = false;
   btnExpandLabel.textContent = 'Expand All';
+  audioInAccumEl  = null;
+  audioInChunks   = 0;
+  audioOutAccumEl = null;
+  audioOutChunks  = 0;
 }
 
 btnClear.addEventListener('click', () => {

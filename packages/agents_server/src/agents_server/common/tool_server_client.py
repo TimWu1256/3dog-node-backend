@@ -4,28 +4,21 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import os
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
 
-TOOL_SERVER_BASE_URL = os.environ.get(
-    "TOOL_SERVER_URL",
-    os.environ.get("RENDER_SERVICE_URL", "http://localhost:3601"),
-).rstrip("/")
+TOOL_SERVER_BASE_URL = "http://localhost:3601"
 
-JOB_PATH_TEMPLATE = os.environ.get("TOOL_SERVER_JOB_PATH", "/jobs/{id}")
-CODE_PATH_TEMPLATE = os.environ.get("TOOL_SERVER_CODE_PATH", "/jobs/{id}/code")
-SNAPSHOT_PATH_TEMPLATE = os.environ.get(
-    "TOOL_SERVER_SNAPSHOT_PATH",
-    "/jobs/{id}/snapshot",
-)
-CSHARP_PATH_TEMPLATE = os.environ.get("TOOL_SERVER_CSHARP_PATH", "/jobs/{id}/csharp")
+_JOB_PATH_TEMPLATE = "/jobs/{id}"
+_CODE_PATH_TEMPLATE = "/jobs/{id}/code"
+_SNAPSHOT_PATH_TEMPLATE = "/jobs/{id}/snapshot"
+_CSHARP_PATH_TEMPLATE = "/jobs/{id}/csharp"
 
-FETCH_ATTEMPTS = int(os.environ.get("ANIMATION_AGENT_FETCH_ATTEMPTS", "3"))
-FETCH_INTERVAL_SEC = float(os.environ.get("ANIMATION_AGENT_FETCH_INTERVAL_SEC", "1.5"))
+_FETCH_ATTEMPTS = 3
+_FETCH_INTERVAL_SEC = 1.5
 
 
 class ToolServerArtifactError(RuntimeError):
@@ -67,17 +60,17 @@ async def fetch_animation_bundle(
     async with httpx.AsyncClient(timeout=30) as client:
         job_metadata = await _get_json_with_retry(
             client,
-            build_tool_server_url(JOB_PATH_TEMPLATE, job_id),
+            build_tool_server_url(_JOB_PATH_TEMPLATE, job_id),
             "job metadata",
         )
         code = await _get_text_with_retry(
             client,
-            build_tool_server_url(CODE_PATH_TEMPLATE, job_id),
+            build_tool_server_url(_CODE_PATH_TEMPLATE, job_id),
             "generated code",
         )
         snapshot_bytes = await _get_bytes_with_retry(
             client,
-            build_tool_server_url(SNAPSHOT_PATH_TEMPLATE, job_id),
+            build_tool_server_url(_SNAPSHOT_PATH_TEMPLATE, job_id),
             "snapshot",
         )
 
@@ -94,7 +87,7 @@ async def fetch_animation_bundle(
 async def upload_csharp_planner(*, job_id: str, csharp: str) -> UploadedPlanner:
     """Upload generated planner source to the tool-server C# endpoint."""
 
-    url = build_tool_server_url(CSHARP_PATH_TEMPLATE, job_id)
+    url = build_tool_server_url(_CSHARP_PATH_TEMPLATE, job_id)
 
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(
@@ -117,7 +110,7 @@ async def _get_json_with_retry(
 ) -> dict[str, Any]:
     last_error = ""
 
-    for _ in range(max(1, FETCH_ATTEMPTS)):
+    for _ in range(max(1, _FETCH_ATTEMPTS)):
         try:
             response = await client.get(url)
             if response.status_code == 200:
@@ -138,7 +131,7 @@ async def _get_text_with_retry(
 ) -> str:
     last_error = ""
 
-    for _ in range(max(1, FETCH_ATTEMPTS)):
+    for _ in range(max(1, _FETCH_ATTEMPTS)):
         try:
             response = await client.get(url)
             if response.status_code == 200 and response.text.strip():
@@ -159,7 +152,7 @@ async def _get_bytes_with_retry(
 ) -> bytes:
     last_error = ""
 
-    for _ in range(max(1, FETCH_ATTEMPTS)):
+    for _ in range(max(1, _FETCH_ATTEMPTS)):
         try:
             response = await client.get(url)
             if response.status_code == 200 and response.content:
@@ -174,4 +167,4 @@ async def _get_bytes_with_retry(
 
 
 async def _sleep_between_attempts() -> None:
-    await asyncio.sleep(max(0.1, FETCH_INTERVAL_SEC))
+    await asyncio.sleep(max(0.1, _FETCH_INTERVAL_SEC))

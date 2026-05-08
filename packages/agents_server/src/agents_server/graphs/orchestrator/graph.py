@@ -49,7 +49,14 @@ _builder.add_conditional_edges(
 def _after_craft3d(state: OrchestratorState) -> str:
     result = state.get("subagent_result") or {}
     craft3d_succeeded = bool(result.get("job_id")) and bool(result.get("glb_url"))
-    return "invoke_animation_agent" if craft3d_succeeded else END
+    if not craft3d_succeeded:
+        return END
+    event = state.get("current_event") or {}
+    args = (event.get("data") or {}).get("arguments") or {}
+    # with_animation defaults to True; set explicitly to False to skip
+    if args.get("with_animation") is False:
+        return END
+    return "invoke_animation_agent"
 
 
 _builder.add_conditional_edges(

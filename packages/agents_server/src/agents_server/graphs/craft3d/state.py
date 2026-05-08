@@ -113,6 +113,11 @@ class Craft3DState(TypedDict):
     glb_url: str              # download URL; empty if no render has succeeded yet
     csharp_url: str           # C# animation script URL; empty until csharp agent is developed
     failure_reason: Optional[str]  # set by review when not approved; None on success
+    # --- backdoor fields (all optional, ignored when absent) ---
+    reference_images: Optional[list[str]]  # base64-encoded reference images for the craft node
+    max_reviews: Optional[int]             # override for MAX_REVIEWS in edges.py
+    model: Optional[str]                   # override craft model name (e.g. "google/gemini-3.1-pro-preview")
+    reasoning: Optional[str]               # override reasoning level: "low", "medium", "high"
 
 
 # ---------------------------------------------------------------------------

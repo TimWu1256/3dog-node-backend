@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Player</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #000;
+      color: #fff;
+      font-family: sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    #drop-zone {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+
+    #drop-zone h2 {
+      font-size: 1.4rem;
+      color: #aaa;
+    }
+
+    #file-btn {
+      padding: 10px 28px;
+      background: #222;
+      color: #fff;
+      border: 1px solid #444;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    #file-btn:hover { background: #333; }
+
+    #file-input { display: none; }
+
+    #hint {
+      color: #555;
+      font-size: 0.85rem;
+    }
+
+    #player-wrapper {
+      display: none;
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      background: #000;
+      cursor: none;
+    }
+
+    #player-wrapper.show-cursor { cursor: default; }
+
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    #controls {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 12px 16px;
+      background: linear-gradient(transparent, rgba(0,0,0,0.85));
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      opacity: 0;
+      transition: opacity 0.25s;
+      pointer-events: none;
+    }
+
+    #controls.visible {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    #progress-bar {
+      width: 100%;
+      height: 4px;
+      background: #444;
+      border-radius: 2px;
+      cursor: pointer;
+      position: relative;
+    }
+
+    #progress-fill {
+      height: 100%;
+      background: #fff;
+      border-radius: 2px;
+      width: 0%;
+      pointer-events: none;
+    }
+
+    #controls-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    #controls-row button {
+      background: none;
+      border: none;
+      color: #fff;
+      font-size: 1.2rem;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 4px;
+      transition: background 0.15s;
+    }
+
+    #controls-row button:hover { background: rgba(255,255,255,0.1); }
+
+    #time-display {
+      font-size: 0.85rem;
+      color: #ccc;
+      margin-left: auto;
+    }
+
+    #volume-slider {
+      width: 80px;
+      cursor: pointer;
+      accent-color: #fff;
+    }
+
+    #shortcut-hint {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      font-size: 0.75rem;
+      color: #555;
+      opacity: 0;
+      transition: opacity 0.25s;
+    }
+
+    #controls.visible ~ #shortcut-hint { opacity: 1; }
+
+    #seek-indicator {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 1.1rem;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+  </style>
+</head>
+<body>
+
+<div id="drop-zone">
+  <h2>選擇影片</h2>
+  <button id="file-btn">開啟檔案</button>
+  <input type="file" id="file-input" accept="video/*">
+  <p id="hint">按 C 顯示/隱藏控制 &nbsp;|&nbsp; ← → 快進退 5 秒</p>
+</div>
+
+<div id="player-wrapper">
+  <video id="video" preload="auto"></video>
+
+  <div id="controls">
+    <div id="progress-bar">
+      <div id="progress-fill"></div>
+    </div>
+    <div id="controls-row">
+      <button id="play-btn">&#9654;</button>
+      <input type="range" id="volume-slider" min="0" max="1" step="0.05" value="1">
+      <span id="time-display">0:00 / 0:00</span>
+    </div>
+  </div>
+
+  <div id="shortcut-hint">C: 控制列 &nbsp; ←→: ±5s &nbsp; Space: 播放/暫停</div>
+  <div id="seek-indicator"></div>
+</div>
+
+<script>
+  const fileBtn = document.getElementById('file-btn');
+  const fileInput = document.getElementById('file-input');
+  const dropZone = document.getElementById('drop-zone');
+  const playerWrapper = document.getElementById('player-wrapper');
+  const video = document.getElementById('video');
+  const controls = document.getElementById('controls');
+  const progressFill = document.getElementById('progress-fill');
+  const progressBar = document.getElementById('progress-bar');
+  const playBtn = document.getElementById('play-btn');
+  const timeDisplay = document.getElementById('time-display');
+  const volumeSlider = document.getElementById('volume-slider');
+  const seekIndicator = document.getElementById('seek-indicator');
+
+  let controlsVisible = false;
+  let seekIndicatorTimer = null;
+
+  fileBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', e => loadFile(e.target.files[0]));
+
+  // drag & drop
+  document.addEventListener('dragover', e => e.preventDefault());
+  document.addEventListener('drop', e => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith('video/')) loadFile(file);
+  });
+
+  function loadFile(file) {
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    video.src = url;
+    dropZone.style.display = 'none';
+    playerWrapper.style.display = 'block';
+    video.play();
+    playBtn.textContent = '⏸';
+  }
+
+  // play/pause
+  playBtn.addEventListener('click', togglePlay);
+  video.addEventListener('click', togglePlay);
+
+  function togglePlay() {
+    if (video.paused) { video.play(); playBtn.textContent = '⏸'; }
+    else { video.pause(); playBtn.textContent = '▶'; }
+  }
+
+  // progress
+  video.addEventListener('timeupdate', () => {
+    if (!video.duration) return;
+    progressFill.style.width = (video.currentTime / video.duration * 100) + '%';
+    timeDisplay.textContent = fmt(video.currentTime) + ' / ' + fmt(video.duration);
+  });
+
+  progressBar.addEventListener('click', e => {
+    const rect = progressBar.getBoundingClientRect();
+    video.currentTime = ((e.clientX - rect.left) / rect.width) * video.duration;
+  });
+
+  volumeSlider.addEventListener('input', () => { video.volume = volumeSlider.value; });
+
+  video.addEventListener('ended', () => { playBtn.textContent = '▶'; });
+
+  function fmt(s) {
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60).toString().padStart(2, '0');
+    return m + ':' + sec;
+  }
+
+  // keyboard
+  document.addEventListener('keydown', e => {
+    if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
+    switch (e.key) {
+      case 'c':
+      case 'C':
+        controlsVisible = !controlsVisible;
+        controls.classList.toggle('visible', controlsVisible);
+        playerWrapper.classList.toggle('show-cursor', controlsVisible);
+        break;
+      case 'ArrowLeft':
+        e.preventDefault();
+        seek(-5);
+        break;
+      case 'ArrowRight':
+        e.preventDefault();
+        seek(5);
+        break;
+      case ' ':
+        e.preventDefault();
+        togglePlay();
+        break;
+    }
+  });
+
+  function seek(delta) {
+    video.currentTime = Math.max(0, Math.min(video.duration || 0, video.currentTime + delta));
+    showSeekIndicator(delta);
+  }
+
+  function showSeekIndicator(delta) {
+    seekIndicator.textContent = (delta > 0 ? '+' : '') + delta + 's';
+    seekIndicator.style.opacity = '1';
+    clearTimeout(seekIndicatorTimer);
+    seekIndicatorTimer = setTimeout(() => { seekIndicator.style.opacity = '0'; }, 800);
+  }
+</script>
+</body>
+</html>

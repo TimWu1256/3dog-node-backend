@@ -46,3 +46,6 @@ class AnimationAgentState(TypedDict):
     csharp_url: str
     planner_class_name: str
     failure_reason: Optional[str]
+    # optional model overrides (omit to use server defaults)
+    model: Optional[str]     # e.g. "openai/gpt-5.4" or "google/gemini-3-flash-preview"
+    reasoning: Optional[str] # e.g. "low", "medium", "high"

@@ -2,35 +2,35 @@
 
 from __future__ import annotations
 
-import os
 import re
 
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 
+from agents_server.common.model_router import get_chat_model
 from agents_server.common.tool_server_client import (
     ToolServerAnimationBundle,
     upload_csharp_planner,
 )
 from agents_server.graphs.animation_agent.state import AnimationAgentState, PlannerSource
 
+_DEFAULT_ANIMATION_MODEL = "google/gemini-3-flash-preview"
 
-DEFAULT_ANIMATION_MODEL = os.environ.get("ANIMATION_AGENT_MODEL", "gpt-5.4")
-DEFAULT_REASONING_EFFORT = os.environ.get("ANIMATION_AGENT_REASONING_EFFORT", "medium")
-
-_animation_model: ChatOpenAI | None = None
+_animation_models: dict[str, BaseChatModel] = {}
 
 
-def _get_animation_model() -> ChatOpenAI:
-    global _animation_model
-    if _animation_model is None:
-        _animation_model = ChatOpenAI(
-            model=DEFAULT_ANIMATION_MODEL,
-            reasoning_effort=DEFAULT_REASONING_EFFORT,
+def _get_animation_model(model_name: str | None = None, reasoning: str | None = None) -> BaseChatModel:
+    name = model_name or _DEFAULT_ANIMATION_MODEL
+    cache_key = f"{name}:{reasoning or ''}"
+    if cache_key not in _animation_models:
+        _animation_models[cache_key] = get_chat_model(
+            name,
+            openai_kwargs={"reasoning_effort": reasoning or "medium"},
+            google_kwargs={"thinking_level": reasoning or "low"},
         )
-    return _animation_model
+    return _animation_models[cache_key]
 
-ANIMATION_AGENT_SYSTEM_PROMPT = """
+ANIMATION_AGENT_SYSTEM_PROMPT = ("""
 You are the Mind Reality Animation Agent.
 
 You receive a Craft3D object snapshot, generated Three.js code, object name,
@@ -63,9 +63,10 @@ Available C# helper API and units:
 - `IEnumerator PlannerAnimationActions.RotateLocal(Transform target, Vector3 eulerOffset, float seconds)`.
 - `IEnumerator PlannerAnimationActions.SwingLocal(Transform target, Vector3 eulerAmplitude, float seconds, float cycles)`.
 - `IEnumerator PlannerAnimationActions.ScaleLocal(Transform target, Vector3 scaleMultiplier, float seconds)`.
-- `IEnumerator PlannerAnimationActions.PlayEffect(Transform emitter, string effectType, float rangeMeters, float intensity, float seconds)`.
-- `IEnumerator PlannerAnimationActions.FireBreath(Transform emitter, float rangeMeters, float seconds, float headSwingDegrees, Transform swingTarget)`.
-- `IEnumerator PlannerTimeline.Sequence(params IEnumerator[] actions)`.
+"""\
+# - `IEnumerator PlannerAnimationActions.PlayEffect(Transform emitter, string effectType, float rangeMeters, float intensity, float seconds)`.
+# - `IEnumerator PlannerAnimationActions.FireBreath(Transform emitter, float rangeMeters, float seconds, float headSwingDegrees, Transform swingTarget)`.
++ """- `IEnumerator PlannerTimeline.Sequence(params IEnumerator[] actions)`.
 - `IEnumerator PlannerTimeline.ParallelWaitAll(MonoBehaviour owner, params IEnumerator[] actions)`.
 - `IEnumerator PlannerTimeline.Repeat(int count, Func<IEnumerator> actionFactory)`.
 - `IEnumerator PlannerTimeline.Loop(Func<IEnumerator> actionFactory)`.
@@ -76,12 +77,13 @@ Units and values:
 - `eulerOffset` and `eulerAmplitude` are degrees, as `Vector3`.
 - `rangeMeters` is meters, as a float.
 - `intensity` is a multiplier. Prefer `0.1f` to `3f`.
-- Effects must use one of: `fire`, `beam`, `explosion`, `trail`, `smoke`, `sparks`, `shockwave`, `poison`, `ice`, `electric`, `magic`, `dust`.
+"""+\
+"""- Effects must use one of: `fire`, `beam`, `explosion`, `trail`, `smoke`, `sparks`, `shockwave`, `poison`, `ice`, `electric`, `magic`, `dust`.
 
 Safety rules:
 - Do not use System.IO, System.Net, System.Diagnostics, System.Reflection, UnityEditor, DllImport, unsafe, async, await, Thread, Task, Process, File, Directory, SceneManager, Application.Quit, GameObject.Find, FindObjectOfType, or AddComponent.
 - Control only `transform` and child Transforms resolved via `Part(...)`.
-""".strip()
+""".strip())
 
 
 # ---------------------------------------------------------------------------
@@ -89,11 +91,16 @@ Safety rules:
 # ---------------------------------------------------------------------------
 
 
-async def _generate_runtime_planner(bundle: ToolServerAnimationBundle) -> PlannerSource:
+async def _generate_runtime_planner(
+    bundle: ToolServerAnimationBundle,
+    *,
+    model_name: str | None = None,
+    reasoning: str | None = None,
+) -> PlannerSource:
     class_name = _safe_class_name(bundle.object_name, bundle.job_id)
     prompt = _build_animation_prompt(bundle, class_name)
 
-    response = await _get_animation_model().ainvoke([
+    response = await _get_animation_model(model_name, reasoning).ainvoke([
         SystemMessage(content=ANIMATION_AGENT_SYSTEM_PROMPT),
         HumanMessage(content=[
             {"type": "text", "text": prompt},
@@ -134,7 +141,11 @@ async def _generate_runtime_planner(bundle: ToolServerAnimationBundle) -> Planne
 async def generate(state: AnimationAgentState) -> dict:
     bundle = state["bundle"]
     try:
-        planner = await _generate_runtime_planner(bundle)
+        planner = await _generate_runtime_planner(
+            bundle,
+            model_name=state.get("model"),
+            reasoning=state.get("reasoning"),
+        )
         return {"planner": planner}
     except Exception as exc:
         return {"failure_reason": f"{type(exc).__name__}: {exc}"}
@@ -160,8 +171,6 @@ async def save(state: AnimationAgentState) -> dict:
 
 
 def _build_animation_prompt(bundle: ToolServerAnimationBundle, class_name: str) -> str:
-    metadata = str(bundle.job_metadata)[:4000]
-
     return f"""
 Create a runtime Unity C# planner for this Craft3D object.
 
@@ -173,9 +182,6 @@ Object description:
 
 Preferred class name:
 {class_name}
-
-Tool server job metadata:
-{metadata}
 
 Craft3D generated Three.js code:
 ```js

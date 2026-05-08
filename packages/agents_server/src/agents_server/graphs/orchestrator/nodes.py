@@ -75,14 +75,25 @@ async def invoke_craft3d_node(state: OrchestratorState) -> dict:
     try:
         # craft3d_agent is compiled without a checkpointer; ainvoke runs it
         # in-process and returns the Craft3DOutput keys.
-        result_state = await craft3d_agent.ainvoke(
-            {
-                "input": ObjectProps(
-                    object_name=object_name,
-                    object_description=object_description,
-                )
-            }
-        )
+        event = state.get("current_event") or {}
+        args = (event.get("data") or {}).get("arguments") or {}
+
+        craft3d_input: dict = {
+            "input": ObjectProps(
+                object_name=object_name,
+                object_description=object_description,
+            )
+        }
+        if args.get("reference_images"):
+            craft3d_input["reference_images"] = args["reference_images"]
+        if args.get("model"):
+            craft3d_input["model"] = args["model"]
+        if args.get("max_reviews") is not None:
+            craft3d_input["max_reviews"] = args["max_reviews"]
+        if args.get("craft_reasoning"):
+            craft3d_input["reasoning"] = args["craft_reasoning"]
+
+        result_state = await craft3d_agent.ainvoke(craft3d_input)
         result = SubagentResult(
             job_id=result_state.get("job_id", ""),
             glb_url=result_state.get("glb_url", ""),
@@ -140,19 +151,26 @@ async def invoke_animation_agent_node(state: OrchestratorState) -> dict:
             object_name,
         )
         try:
+            event = state.get("current_event") or {}
+            args = (event.get("data") or {}).get("arguments") or {}
             bundle = await fetch_animation_bundle(
                 job_id=job_id,
                 object_name=object_name,
                 object_description=object_description,
             )
-            raw = await animation_agent.ainvoke({
+            animation_input: dict = {
                 "job_id": job_id,
                 "bundle": bundle,
                 "planner": None,
                 "csharp_url": "",
                 "planner_class_name": "",
                 "failure_reason": None,
-            })
+            }
+            if args.get("animation_model"):
+                animation_input["model"] = args["animation_model"]
+            if args.get("animation_reasoning"):
+                animation_input["reasoning"] = args["animation_reasoning"]
+            raw = await animation_agent.ainvoke(animation_input)
             result = AnimationAgentResult(
                 job_id=job_id,
                 csharp_ready=bool(raw.get("csharp_url")),

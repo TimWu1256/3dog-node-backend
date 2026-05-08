@@ -12,11 +12,11 @@ import logging
 import time
 from typing import Any
 
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import ChatOpenAI
 
 from agents_server.common.instructions import load_instructions_template
+from agents_server.common.model_router import get_chat_model, normalize
 from agents_server.common.render_client import RenderGlbError, get_glb_url, render_glb
 from agents_server.common.schemas import ObjectProps
 from agents_server.common.utils import extract_code_from_markdown, stringify_error
@@ -42,26 +42,42 @@ _render_revise_prompt = load_instructions_template("craft3d-revise")
 # LLM clients (lazy-initialized to defer API key validation until first use)
 # ---------------------------------------------------------------------------
 
-_craft_model: ChatOpenAI | None = None
-_review_model: ChatOpenAI | None = None
+_craft_models: dict[str, BaseChatModel] = {}
+_review_model: BaseChatModel | None = None
+
+# Change these constants to switch providers, e.g. "openai/gpt-5.4"
+_DEFAULT_CRAFT_MODEL = "google/gemini-3-flash-preview"
+_DEFAULT_REVIEW_MODEL = "openai/gpt-5.4-mini"
+_ALLOWED_CRAFT_MODELS = {
+    "google/gemini-3.1-pro-preview",
+    "google/gemini-3-flash-preview",
+    "google/gemini-3.1-flash-lite-preview",
+    "openai/gpt-5.4",
+    "openai/gpt-5.4-mini",
+}
 
 
-def _get_craft_model() -> ChatOpenAI:
-    global _craft_model
-    if _craft_model is None:
-        _craft_model = ChatGoogleGenerativeAI(
-            model="gemini-3-flash-preview",
-            thinking_level="low",
+def _get_craft_model(model_name: str | None = None, reasoning: str | None = None) -> BaseChatModel:
+    # Normalize bare names (e.g. "gemini-3-flash-preview") to "provider/model" form
+    normalized = normalize(model_name) if model_name else None
+    name = normalized if normalized in _ALLOWED_CRAFT_MODELS else _DEFAULT_CRAFT_MODEL
+    cache_key = f"{name}:{reasoning or ''}"
+    if cache_key not in _craft_models:
+        _craft_models[cache_key] = get_chat_model(
+            name,
+            google_kwargs={"thinking_level": reasoning or "low"},
+            openai_kwargs={"reasoning_effort": reasoning or "medium"},
         )
-    return _craft_model
+    return _craft_models[cache_key]
 
 
-def _get_review_model() -> ChatOpenAI:
+def _get_review_model() -> BaseChatModel:
     global _review_model
     if _review_model is None:
-        _review_model = ChatOpenAI(
-            model="gpt-5.4-mini",
-            reasoning_effort="low",
+        _review_model = get_chat_model(
+            _DEFAULT_REVIEW_MODEL,
+            openai_kwargs={"reasoning_effort": "low"},
+            google_kwargs={"thinking_level": "low"},
         )
     return _review_model
 
@@ -102,13 +118,15 @@ async def _create_artifact(
     input,  # ObjectProps
     fallback_code: str | None = None,
     additional_content: list[dict[str, Any]] = [],
+    model_name: str | None = None,
+    reasoning: str | None = None,
 ) -> Artifact:
     try:
         content: list[Any] = [
             {"type": "text", "text": _render_generation_prompt(input.model_dump())},
             *additional_content,
         ]
-        response = await _get_craft_model().ainvoke([HumanMessage(content=content)])
+        response = await _get_craft_model(model_name, reasoning).ainvoke([HumanMessage(content=content)])
         raw_content = response.content
         if isinstance(raw_content, str):
             raw = raw_content
@@ -195,11 +213,27 @@ async def _review_artifact(artifact: Artifact) -> Artifact:
 # ---------------------------------------------------------------------------
 
 
+def _build_image_content(reference_images: list[str] | None) -> list[dict]:
+    """Convert base64 image strings to LangChain image_url content blocks."""
+    if not reference_images:
+        return []
+    blocks = []
+    for img in reference_images:
+        # Accept bare base64 or data URIs
+        if img.startswith("data:"):
+            url = img
+        else:
+            url = f"data:image/jpeg;base64,{img}"
+        blocks.append({"type": "image_url", "image_url": {"url": url}})
+    return blocks
+
+
 async def craft(state: Craft3DState) -> dict:
     version = str(len(state["artifact_history"]) + 1)
     input_props = ObjectProps.model_validate(state["input"]) if isinstance(state["input"], dict) else state["input"]
     log.info("[%s] craft v%s — generating Three.js code", input_props.object_name, version)
-    artifact = await _create_artifact(version=version, input=input_props)
+    image_content = _build_image_content(state.get("reference_images"))
+    artifact = await _create_artifact(version=version, input=input_props, additional_content=image_content, model_name=state.get("model"), reasoning=state.get("reasoning"))
     if artifact.errors:
         log.warning("[%s] craft v%s — errors: %s", input_props.object_name, version, artifact.errors)
     else:
@@ -252,17 +286,20 @@ async def revise(state: Craft3DState) -> dict:
     version = str(len(state["artifact_history"]) + 1)
     input_props = ObjectProps.model_validate(state["input"]) if isinstance(state["input"], dict) else state["input"]
     log.info("[%s] revise v%s — revising based on review feedback", input_props.object_name, version)
+    image_content = _build_image_content(state.get("reference_images"))
     artifact = await _create_artifact(
         version=version,
         input=input_props,
         fallback_code=current.code,
+        model_name=state.get("model"),
+        reasoning=state.get("reasoning"),
         additional_content=[{
             "type": "text",
             "text": _render_revise_prompt({
                 "code": current.code or "",
                 "comment": current.review.comment if current.review else "None",
             }),
-        }],
+        }, *image_content],
     )
     return {
         "artifact_history": artifact,
