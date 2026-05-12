@@ -25,12 +25,28 @@
 
 | 平台 | 方法 | 說明 |
 |------|------|------|
-| UWP（HoloLens） | `PhotoCapture.CreateAsync(showHolograms: true)` | 使用 HoloLens 原生 MRC（Mixed Reality Capture）管線，正確合成真實世界攝影機畫面與全息影像。**這是 HoloLens 上唯一可靠的方法**。 |
+| UWP（HoloLens） | `PhotoCapture.CreateAsync(showHolograms: true)`（**每次拍照完整 lifecycle**） | 使用 HoloLens 原生 MRC（Mixed Reality Capture）管線，正確合成真實世界攝影機畫面與全息影像。**這是 HoloLens 上唯一可靠的方法**。 |
 | Editor / 其他平台 | 顯式 `Camera.Render()` → RenderTexture | arCamera 先渲染背景，virtualCamera 以 Depth-only clear 疊加虛擬物件。使用 `Camera.Render()` 而非 `WaitForEndOfFrame()`，避免 XR 模式下相機不寫入自訂 RenderTexture 的問題。 |
 
 兩條路徑的 Base64 編碼均使用 `ThreadPool.QueueUserWorkItem` 在背景執行緒完成，避免阻塞主執行緒。
 
+### UWP per-capture lifecycle、queue、watchdog
+
+每次 `CaptureAsync` 走完整生命週期：`CreateAsync → StartPhotoModeAsync → TakePhotoAsync → StopPhotoModeAsync → Dispose`。
+
+- **為什麼不保持 photo mode 常開？** 過去版本只在 `Start()` 初始化一次以節省 ~2 s。但在 HoloLens 2 上 native callback chain 在 sleep/wake、focus loss、或被系統 MRC 搶占後會進入死狀態，`TakePhotoAsync` callback 不再 fire，整個 component 從此卡住。Per-capture lifecycle 雖然每張多 ~2 s，但每張都從乾淨狀態開始，hang 只會影響當下這一張。
+- **Queue serialization**：`CaptureAsync` 把請求放入 internal queue，背景 worker coroutine 依序處理一張完成才開下一張。HoloLens 硬體不支援並發 PhotoCapture session；queue 解決 greeting capture 與 tool capture 同時觸發時的競爭（先前現象為 `"A capture is already in progress."`）。
+- **Watchdog timeouts**：`CreateAsync` / `StartPhotoModeAsync` / `TakePhotoAsync` / `StopPhotoModeAsync` 各自有 inspector 可調的超時。超時即視為 OS callback 不會回來，強制 `Dispose` 並回報錯誤，下一次 capture 可重新建立 session。
+
 > **注意**：舊版使用 `WaitForEndOfFrame()` 方式在 HoloLens XR 模式下會產生全黑影像，原因是 XR runtime 直接控制相機 frame 提交，不經過 Unity 標準相機渲染管線，導致 RenderTexture 保持空白（全黑）。
+
+### 大字串 JSON 序列化
+
+`GenAICaptureHandler.SendResult` 不使用 `JsonUtility.ToJson` 包裝 `imageBase64`，而是手動串接 JSON。在 IL2CPP/UWP 上 JsonUtility 對 100KB+ 字串欄位曾被觀察到處理異常；`requestId`（GUID hex）與 `imageBase64`（base64 + data URI prefix）皆不含需 JSON escape 的字元，直接串接安全且零成本。
+
+### Greeting 觸發時機
+
+`SpaceWizard.OnClientConnected` 收到 `OnPeerAdded` 時若 Realtime API 尚未連線（lazy connect），會主動呼叫 `EnsureReadyAsync()` 啟動連線。`OnSessionReady` 中既有的「補打招呼」邏輯（`GetConnectedPeerIds` → `GreetNewClient`）會在 session ready 後對該 peer 完成 greeting。避免過去「greeting 要等使用者第一次說話才出現」的問題。
 
 ---
 
