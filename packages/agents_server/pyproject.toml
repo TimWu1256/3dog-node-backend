@@ -13,6 +13,7 @@ dependencies = [
     "langgraph>=1.1.0",
     "langsmith>=0.7.16",
     "pydantic>=2.12.5",
+    "fastmcp>=2.0",
 ]
 
 [tool.uv]
