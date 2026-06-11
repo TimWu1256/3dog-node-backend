@@ -35,6 +35,7 @@ services:
     environment:
       DATABASE_URI: postgresql://postgres:postgres@postgres:5432/langgraph
       RENDER_GLB_URL: http://craft3d:3601/render
+      TOOL_SERVER_URL: http://craft3d:3601
       INSTRUCTIONS_DIR: /deps/agents_server/instructions
       # GOOGLE_API_KEY: ${GOOGLE_API_KEY}
       # GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY}
@@ -47,6 +48,9 @@ services:
         required: false
     ports:
       - "3600:8000"
+    volumes:
+      - ../packages/agents_server:/deps/agents_server
+      - ../instructions:/deps/agents_server/instructions
     depends_on:
       postgres:
         condition: service_healthy
@@ -63,6 +67,8 @@ services:
       LANGGRAPH_URL: http://langgraph-agents:8000
     ports:
       - "3602:3602"
+    volumes:
+      - ../packages/agents_server:/deps/agents_server
     depends_on:
       - langgraph-agents
     networks:

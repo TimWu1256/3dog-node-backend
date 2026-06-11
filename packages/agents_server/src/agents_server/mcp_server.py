@@ -20,11 +20,11 @@ async def generate_3d_object(object_name: str, object_description: str) -> str:
     Use this when the user requests a 3D model WITHOUT animation effects.
 
     Args:
-        object_name: Unique identifier/name for the object (no spaces, e.g. "convex_lens").
+        object_name: Name for the object (e.g. "hanging lantern", "ancient shrine gate").
         object_description: Natural language description of the object's shape and material.
 
     Returns:
-        JSON string with job_id, glb_url (download link), and failure_reason if any.
+        JSON string with object_name, job_id, glb_url (download link), and failure_reason if any.
         Note: csharp_url is NOT included (no animation).
     """
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
@@ -46,7 +46,9 @@ async def generate_3d_object(object_name: str, object_description: str) -> str:
             timeout=_HTTP_TIMEOUT,
         )
         run_resp.raise_for_status()
-        return json.dumps(run_resp.json(), ensure_ascii=False)
+        result = run_resp.json()
+        result["object_name"] = object_name
+        return json.dumps(result, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -57,11 +59,11 @@ async def generate_3d_object_with_animation(object_name: str, object_description
     Returns a Unity C# animation script in addition to the 3D model.
 
     Args:
-        object_name: Unique identifier/name for the object (no spaces, e.g. "rotating_earth").
+        object_name: Name for the object (e.g. "rotating lantern", "spinning gear").
         object_description: Natural language description including desired animation or motion (e.g. "spinning globe").
 
     Returns:
-        JSON string with job_id, glb_url (download link), csharp_url (Unity animation C# script), and failure_reason if any.
+        JSON string with object_name, job_id, glb_url (download link), csharp_url (Unity animation C# script), and failure_reason if any.
     """
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         thread_resp = await client.post(f"{LANGGRAPH_URL}/threads", json={})
@@ -73,16 +75,26 @@ async def generate_3d_object_with_animation(object_name: str, object_description
             json={
                 "assistant_id": "orchestrator",
                 "input": {
-                    "input": {
-                        "object_name": object_name,
-                        "object_description": object_description,
+                    "current_event": {
+                        "type": "tool_call",
+                        "data": {
+                            "name": "create_3d_object",
+                            "arguments": {
+                                "object_name": object_name,
+                                "object_description": object_description,
+                                "with_animation": True,
+                            },
+                        },
                     }
                 },
             },
             timeout=_HTTP_TIMEOUT,
         )
         run_resp.raise_for_status()
-        return json.dumps(run_resp.json(), ensure_ascii=False)
+        full_result = run_resp.json()
+        result = full_result.get("subagent_result") or {}
+        result["object_name"] = object_name
+        return json.dumps(result, ensure_ascii=False)
 
 
 if __name__ == "__main__":

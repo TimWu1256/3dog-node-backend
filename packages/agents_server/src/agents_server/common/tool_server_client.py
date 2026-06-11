@@ -7,10 +7,12 @@ import base64
 from dataclasses import dataclass
 from typing import Any
 
+import os
+
 import httpx
 
 
-TOOL_SERVER_BASE_URL = "http://localhost:3601"
+TOOL_SERVER_BASE_URL = os.getenv("TOOL_SERVER_URL", "http://localhost:3601")
 
 _JOB_PATH_TEMPLATE = "/jobs/{id}"
 _CODE_PATH_TEMPLATE = "/jobs/{id}/code"
