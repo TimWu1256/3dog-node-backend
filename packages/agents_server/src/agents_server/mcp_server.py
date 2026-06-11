@@ -15,14 +15,17 @@ _HTTP_TIMEOUT = 300.0
 
 @mcp.tool()
 async def generate_3d_object(object_name: str, object_description: str) -> str:
-    """Generate a 3D object via the craft3d pipeline.
+    """Generate a static 3D object (no animation) via the craft3d pipeline.
+
+    Use this when the user requests a 3D model WITHOUT animation effects.
 
     Args:
         object_name: Unique identifier/name for the object (no spaces, e.g. "convex_lens").
         object_description: Natural language description of the object's shape and material.
 
     Returns:
-        JSON string with job_id, glb_url (download link), csharp_url, and failure_reason if any.
+        JSON string with job_id, glb_url (download link), and failure_reason if any.
+        Note: csharp_url is NOT included (no animation).
     """
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         thread_resp = await client.post(f"{LANGGRAPH_URL}/threads", json={})
@@ -48,14 +51,17 @@ async def generate_3d_object(object_name: str, object_description: str) -> str:
 
 @mcp.tool()
 async def generate_3d_object_with_animation(object_name: str, object_description: str) -> str:
-    """Generate a 3D object with animation via the full orchestrator pipeline.
+    """Generate a 3D object WITH animation (rotation, movement, effects) via the full orchestrator pipeline.
+
+    Use this when the user requests animation, rotation, movement, or visual effects.
+    Returns a Unity C# animation script in addition to the 3D model.
 
     Args:
-        object_name: Unique identifier/name for the object (no spaces, e.g. "convex_lens").
-        object_description: Natural language description of the object's shape and material.
+        object_name: Unique identifier/name for the object (no spaces, e.g. "rotating_earth").
+        object_description: Natural language description including desired animation or motion (e.g. "spinning globe").
 
     Returns:
-        JSON string with job_id, glb_url, csharp_url (animation C# script), and failure_reason if any.
+        JSON string with job_id, glb_url (download link), csharp_url (Unity animation C# script), and failure_reason if any.
     """
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         thread_resp = await client.post(f"{LANGGRAPH_URL}/threads", json={})
