@@ -36,6 +36,7 @@ services:
       DATABASE_URI: postgresql://postgres:postgres@postgres:5432/langgraph
       RENDER_GLB_URL: http://craft3d:3601/render
       TOOL_SERVER_URL: http://craft3d:3601
+      TOOL_SERVER_PUBLIC_URL: http://localhost:3601
       INSTRUCTIONS_DIR: /deps/agents_server/instructions
       # GOOGLE_API_KEY: ${GOOGLE_API_KEY}
       # GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY}
