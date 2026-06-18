@@ -70,25 +70,30 @@ Generated code should:
 - Start playback in `OnEnable` and stop in `OnDisable`.
 - Use `IEnumerator` coroutines for all time-based behaviour.
 - Resolve child parts with `Transform part = Part("semantic_hint");`.
-- Use `PlannerAnimationActions` and `PlannerTimeline`.
+- Call the helper methods below directly, with no class prefix (they are inherited
+  `protected` methods on `RuntimeGeneratedPlanner`). Do not invent helpers such as
+  `SpawnEffect`.
 - Avoid scene-wide operations, file/network IO, reflection, threads, and UnityEditor APIs.
 
-Available actions (all `IEnumerator`):
+Available actions (all `IEnumerator`, called unqualified):
 
 ```
-PlannerAnimationActions.Wait(float seconds)
-PlannerAnimationActions.MoveLocal(Transform target, Vector3 offset, float seconds)
-PlannerAnimationActions.MoveWorld(Transform target, Vector3 offset, float seconds)
-PlannerAnimationActions.RotateLocal(Transform target, Vector3 eulerOffset, float seconds)
-PlannerAnimationActions.SwingLocal(Transform target, Vector3 eulerAmplitude, float seconds, float cycles)
-PlannerAnimationActions.ScaleLocal(Transform target, Vector3 scaleMultiplier, float seconds)
-PlannerAnimationActions.PlayEffect(Transform emitter, string effectType, float rangeMeters, float intensity, float seconds)
-PlannerAnimationActions.FireBreath(Transform emitter, float rangeMeters, float seconds, float headSwingDegrees, Transform swingTarget)
-PlannerTimeline.Sequence(params IEnumerator[] actions)
-PlannerTimeline.ParallelWaitAll(MonoBehaviour owner, params IEnumerator[] actions)
-PlannerTimeline.Repeat(int count, Func<IEnumerator> actionFactory)
-PlannerTimeline.Loop(Func<IEnumerator> actionFactory)
+Wait(float seconds)
+MoveLocal(Transform target, Vector3 offset, float seconds)
+MoveWorld(Transform target, Vector3 offset, float seconds)
+RotateLocal(Transform target, Vector3 eulerOffset, float seconds)
+SwingLocal(Transform target, Vector3 eulerAmplitude, float seconds, float cycles)
+ScaleLocal(Transform target, Vector3 scaleMultiplier, float seconds)
+PlayEffect(Transform emitter, string effectType, float rangeMeters, float intensity, float seconds)
+FireBreath(Transform emitter, float rangeMeters, float seconds, float headSwingDegrees, Transform swingTarget)
+Sequence(params IEnumerator[] actions)
+ParallelWaitAll(params IEnumerator[] actions)
+Repeat(int count, Func<IEnumerator> actionFactory)
+Loop(Func<IEnumerator> actionFactory)
 ```
+
+The base class still forwards these to the underlying `PlannerAnimationActions` /
+`PlannerTimeline` static methods, so fully-qualified calls keep compiling too.
 
 Valid `effectType` values: `fire`, `beam`, `explosion`, `trail`, `smoke`, `sparks`, `shockwave`, `poison`, `ice`, `electric`, `magic`, `dust`.
 
