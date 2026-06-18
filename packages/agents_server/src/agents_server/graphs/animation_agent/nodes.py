@@ -55,21 +55,23 @@ Available Unity server types:
 - Use only `using System;`, `using System.Collections;`, and `using UnityEngine;`.
 
 Available C# helper API and units:
+- Call every helper below directly, with NO class prefix. They are inherited
+  protected methods on RuntimeGeneratedPlanner. Do NOT write
+  `PlannerAnimationActions.` or `PlannerTimeline.` before them.
+- Do NOT invent helpers (for example `SpawnEffect`). Use ONLY the methods listed here.
 - `Transform Part(string partHint)` resolves a GLB child by semantic hint.
-- `IEnumerator Wait(float seconds)` waits for seconds.
-- `IEnumerator PlannerAnimationActions.Wait(float seconds)`.
-- `IEnumerator PlannerAnimationActions.MoveLocal(Transform target, Vector3 offset, float seconds)`.
-- `IEnumerator PlannerAnimationActions.MoveWorld(Transform target, Vector3 offset, float seconds)`.
-- `IEnumerator PlannerAnimationActions.RotateLocal(Transform target, Vector3 eulerOffset, float seconds)`.
-- `IEnumerator PlannerAnimationActions.SwingLocal(Transform target, Vector3 eulerAmplitude, float seconds, float cycles)`.
-- `IEnumerator PlannerAnimationActions.ScaleLocal(Transform target, Vector3 scaleMultiplier, float seconds)`.
-"""\
-# - `IEnumerator PlannerAnimationActions.PlayEffect(Transform emitter, string effectType, float rangeMeters, float intensity, float seconds)`.
-# - `IEnumerator PlannerAnimationActions.FireBreath(Transform emitter, float rangeMeters, float seconds, float headSwingDegrees, Transform swingTarget)`.
-+ """- `IEnumerator PlannerTimeline.Sequence(params IEnumerator[] actions)`.
-- `IEnumerator PlannerTimeline.ParallelWaitAll(MonoBehaviour owner, params IEnumerator[] actions)`.
-- `IEnumerator PlannerTimeline.Repeat(int count, Func<IEnumerator> actionFactory)`.
-- `IEnumerator PlannerTimeline.Loop(Func<IEnumerator> actionFactory)`.
+- `IEnumerator Wait(float seconds)`.
+- `IEnumerator MoveLocal(Transform target, Vector3 offset, float seconds)`.
+- `IEnumerator MoveWorld(Transform target, Vector3 offset, float seconds)`.
+- `IEnumerator RotateLocal(Transform target, Vector3 eulerOffset, float seconds)`.
+- `IEnumerator SwingLocal(Transform target, Vector3 eulerAmplitude, float seconds, float cycles)`.
+- `IEnumerator ScaleLocal(Transform target, Vector3 scaleMultiplier, float seconds)`.
+- `IEnumerator PlayEffect(Transform emitter, string effectType, float rangeMeters, float intensity, float seconds)`.
+- `IEnumerator FireBreath(Transform emitter, float rangeMeters, float seconds, float headSwingDegrees, Transform swingTarget)`.
+- `IEnumerator Sequence(params IEnumerator[] actions)`.
+- `IEnumerator ParallelWaitAll(params IEnumerator[] actions)`.
+- `IEnumerator Repeat(int count, Func<IEnumerator> actionFactory)`.
+- `IEnumerator Loop(Func<IEnumerator> actionFactory)`.
 
 Units and values:
 - `seconds` is seconds, as a float like `2.5f`.
@@ -77,8 +79,7 @@ Units and values:
 - `eulerOffset` and `eulerAmplitude` are degrees, as `Vector3`.
 - `rangeMeters` is meters, as a float.
 - `intensity` is a multiplier. Prefer `0.1f` to `3f`.
-"""+\
-"""- Effects must use one of: `fire`, `beam`, `explosion`, `trail`, `smoke`, `sparks`, `shockwave`, `poison`, `ice`, `electric`, `magic`, `dust`.
+- Effects must use one of: `fire`, `beam`, `explosion`, `trail`, `smoke`, `sparks`, `shockwave`, `poison`, `ice`, `electric`, `magic`, `dust`.
 
 Safety rules:
 - Do not use System.IO, System.Net, System.Diagnostics, System.Reflection, UnityEditor, DllImport, unsafe, async, await, Thread, Task, Process, File, Directory, SceneManager, Application.Quit, GameObject.Find, FindObjectOfType, or AddComponent.
