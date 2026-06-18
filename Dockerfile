@@ -23,6 +23,7 @@ COPY services/craft3d/package*.json ./
 RUN npm ci --omit=dev
 
 COPY --from=node-build /build/dist ./dist
+COPY services/craft3d/public ./public
 
 EXPOSE 3601
 

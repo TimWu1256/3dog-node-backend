@@ -7,10 +7,14 @@ import base64
 from dataclasses import dataclass
 from typing import Any
 
+import os
+
 import httpx
 
 
-TOOL_SERVER_BASE_URL = "http://localhost:3601"
+TOOL_SERVER_BASE_URL = os.getenv("TOOL_SERVER_URL", "http://localhost:3601")
+# Client-accessible URL (e.g. Unity on Windows host); defaults to internal URL if not set.
+TOOL_SERVER_PUBLIC_URL = os.getenv("TOOL_SERVER_PUBLIC_URL", TOOL_SERVER_BASE_URL)
 
 _JOB_PATH_TEMPLATE = "/jobs/{id}"
 _CODE_PATH_TEMPLATE = "/jobs/{id}/code"
@@ -47,6 +51,14 @@ def build_tool_server_url(path_template: str, job_id: str) -> str:
     if not path.startswith("/"):
         path = "/" + path
     return f"{TOOL_SERVER_BASE_URL}{path}"
+
+
+def _build_public_url(path_template: str, job_id: str) -> str:
+    """Build a client-accessible URL using TOOL_SERVER_PUBLIC_URL."""
+    path = path_template.format(id=job_id, job_id=job_id)
+    if not path.startswith("/"):
+        path = "/" + path
+    return f"{TOOL_SERVER_PUBLIC_URL}{path}"
 
 
 async def fetch_animation_bundle(
@@ -88,6 +100,7 @@ async def upload_csharp_planner(*, job_id: str, csharp: str) -> UploadedPlanner:
     """Upload generated planner source to the tool-server C# endpoint."""
 
     url = build_tool_server_url(_CSHARP_PATH_TEMPLATE, job_id)
+    public_url = _build_public_url(_CSHARP_PATH_TEMPLATE, job_id)
 
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(
@@ -100,7 +113,7 @@ async def upload_csharp_planner(*, job_id: str, csharp: str) -> UploadedPlanner:
                 f"POST {url} failed with HTTP {response.status_code}: {response.text[:400]}"
             )
 
-    return UploadedPlanner(csharp_url=url)
+    return UploadedPlanner(csharp_url=public_url)
 
 
 async def _get_json_with_retry(

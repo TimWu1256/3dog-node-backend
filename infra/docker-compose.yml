@@ -1,17 +1,17 @@
 services:
-  realtime-monitor:
-    build:
-      context: ..
-      dockerfile: Dockerfile.realtime-monitor
-    image: 3dog-realtime-monitor:latest
-    restart: unless-stopped
-    environment:
-      NODE_ENV: production
-      PORT: "3681"
-    ports:
-      - "3681:3681"
-    networks:
-      - 3dog-node-backend-net
+  # realtime-monitor:
+  #   build:
+  #     context: ..
+  #     dockerfile: Dockerfile.realtime-monitor
+  #   image: 3dog-realtime-monitor:latest
+  #   restart: unless-stopped
+  #   environment:
+  #     NODE_ENV: production
+  #     PORT: "3681"
+  #   ports:
+  #     - "3681:3681"
+  #   networks:
+  #     - 3dog-node-backend-net
 
   craft3d:
     build:
@@ -35,18 +35,49 @@ services:
     environment:
       DATABASE_URI: postgresql://postgres:postgres@postgres:5432/langgraph
       RENDER_GLB_URL: http://craft3d:3601/render
+      TOOL_SERVER_URL: http://craft3d:3601
+      TOOL_SERVER_PUBLIC_URL: http://localhost:3601
       INSTRUCTIONS_DIR: /deps/agents_server/instructions
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
-      GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      # GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY}
+      # OPENAI_API_KEY: ${OPENAI_API_KEY}
+      REDIS_URI: redis://redis:6379
+      LANGGRAPH_SERVER_HOST: 0.0.0.0
+      LANGSERVE_GRAPHS: '{"craft3d": "agents_server.graphs.craft3d.graph:craft3d_agent", "orchestrator": "agents_server.graphs.orchestrator.graph:orchestrator_agent"}'
     env_file:
       - path: ../.env
         required: false
     ports:
       - "3600:8000"
+    volumes:
+      - ../packages/agents_server:/deps/agents_server
+      - ../instructions:/deps/agents_server/instructions
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - 3dog-node-backend-net
+
+  3dog-mcp:
+    image: 3dog-langgraph-agents:latest
+    restart: unless-stopped
+    entrypoint: ["python", "/deps/agents_server/src/agents_server/mcp_server.py"]
+    environment:
+      LANGGRAPH_URL: http://langgraph-agents:8000
+    ports:
+      - "3602:3602"
+    volumes:
+      - ../packages/agents_server:/deps/agents_server
+    depends_on:
+      - langgraph-agents
+    networks:
+      - 3dog-node-backend-net
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
     networks:
       - 3dog-node-backend-net
 
