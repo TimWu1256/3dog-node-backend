@@ -36,10 +36,10 @@ _ALL_ERROR_TYPES = [
 # Human-readable labels for conditions
 _CONDITION_LABELS = {
     "C0": "Full prompt (baseline)",
-    "C1": "w/o STRICT CONSTRAINTS",
-    "C2": "w/o NO INVENTED METHODS",
-    "C3": "w/o ENV CONTEXT + CODE STRUCTURE",
-    "C4": "Minimal prompt",
+    "C1": "w/o Sandbox context (rules 1-2: NO IMPORTS, NO DOM)",
+    "C2": "w/o Forbidden APIs (rules 3-4: NO ASSETS, NO CONTROLS)",
+    "C3": "w/o Procedural craft (rules 5-6: TEXTURES, SEMANTIC NAMES)",
+    "C4": "w/o Hallucination guard (rule 7: NO INVENTED METHODS)",
 }
 
 

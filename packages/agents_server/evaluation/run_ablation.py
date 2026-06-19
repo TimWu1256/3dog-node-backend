@@ -1,8 +1,16 @@
 """
 Ablation study batch runner for craft3d prompt constraint mechanisms.
 
+Conditions (each removes one semantic group from STRICT CONSTRAINTS; all other
+sections — ENV CONTEXT, CODE STRUCTURE, ENSURE, AESTHETIC GUIDELINES — are fixed):
+  C0: Full prompt (baseline)
+  C1: w/o Sandbox context    (rules 1-2: NO IMPORTS, NO DOM ACCESS)
+  C2: w/o Forbidden APIs     (rules 3-4: NO EXTERNAL ASSETS, NO CONTROLS)
+  C3: w/o Procedural craft   (rules 5-6: TEXTURES, SEMANTIC NODE NAMES)
+  C4: w/o Hallucination guard (rule 7:  NO INVENTED METHODS)
+
 Usage (from packages/agents_server/):
-    uv run python -m evaluation.run_ablation --conditions C0 C1 C2 C3 --repeats 3
+    uv run python -m evaluation.run_ablation --conditions C0 C1 C2 C3 C4 --repeats 3
     uv run python -m evaluation.run_ablation --conditions C0 C1 --difficulty simple --repeats 1
     uv run python -m evaluation.run_ablation --conditions C0 --difficulty complex --timeout-ms 120000
 
@@ -29,7 +37,7 @@ _PROMPTS_FILE = _HERE / "prompts.jsonl"
 _RESULTS_DIR = _HERE / "results"
 _V3_TEMPLATE = Path(__file__).resolve().parents[3] / "instructions" / "craft3d-generation-v3.md"
 
-_DEFAULT_CONDITIONS = ["C0", "C1", "C2", "C3"]
+_DEFAULT_CONDITIONS = ["C0", "C1", "C2", "C3", "C4"]
 _DEFAULT_MAX_REVIEWS = 1   # no revision: review ends graph regardless of result
 _DEFAULT_BATCH_SIZE = 3    # concurrent prompts per condition (I/O bound, no monkeypatch conflict)
 _FIXED_CRAFT_MODEL = "google/gemini-3-flash-preview"
