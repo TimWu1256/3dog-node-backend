@@ -40,7 +40,7 @@ _V3_TEMPLATE = Path(__file__).resolve().parents[3] / "instructions" / "craft3d-g
 _DEFAULT_CONDITIONS = ["C0", "C1", "C2", "C3", "C4"]
 _DEFAULT_MAX_REVIEWS = 1   # no revision: review ends graph regardless of result
 _DEFAULT_BATCH_SIZE = 3    # concurrent prompts per condition (I/O bound, no monkeypatch conflict)
-_FIXED_CRAFT_MODEL = "google/gemini-3-flash-preview"
+_FIXED_CRAFT_MODEL = "google/gemini-3.5-flash"
 
 
 # ---------------------------------------------------------------------------
