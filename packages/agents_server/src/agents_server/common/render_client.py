@@ -53,6 +53,15 @@ async def render_glb(
                 timeout=timeout_sec + 10,  # HTTP timeout slightly above job timeout
             )
             response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        # 422: render service returns { success: false, error: "JS error" } in body
+        error_msg = str(exc)
+        try:
+            body = exc.response.json()
+            error_msg = body.get("error", error_msg)
+        except Exception:
+            pass
+        raise RenderGlbError(error_msg) from exc
     except httpx.HTTPError as exc:
         raise RenderGlbError(str(exc)) from exc
 
