@@ -103,9 +103,9 @@ def _classify_error(msg: str) -> str:
         return "import_error"
     if "is not defined" in m:
         return "reference_error"
-    if "is not a function" in m or "typeerror" in m:
+    if "is not a function" in m or "is not a constructor" in m or "typeerror" in m:
         return "type_error"
-    if "syntaxerror" in m or "unexpected token" in m or "unexpected end" in m:
+    if "syntaxerror" in m or "unexpected token" in m or "unexpected end" in m or "has already been declared" in m:
         return "syntax_error"
     return "other"
 

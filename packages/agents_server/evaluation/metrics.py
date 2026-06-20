@@ -33,6 +33,25 @@ _ALL_ERROR_TYPES = [
     "syntax_error", "no_export", "timeout", "other",
 ]
 
+
+def _classify_error(msg: str) -> str:
+    if not msg:
+        return "none"
+    m = msg.lower()
+    if "__export() was never called" in m:
+        return "no_export"
+    if "timeout" in m:
+        return "timeout"
+    if "import" in m or "require" in m or "cannot use import" in m:
+        return "import_error"
+    if "is not defined" in m:
+        return "reference_error"
+    if "is not a function" in m or "is not a constructor" in m or "typeerror" in m:
+        return "type_error"
+    if "syntaxerror" in m or "unexpected token" in m or "unexpected end" in m or "has already been declared" in m:
+        return "syntax_error"
+    return "other"
+
 # Human-readable labels for conditions
 _CONDITION_LABELS = {
     "C0": "Full prompt (baseline)",
@@ -66,11 +85,12 @@ def load_records(paths: list[Path]) -> list[dict]:
 
 
 def _collect_error_types_for_version(artifacts: list[dict], version_idx: int) -> list[str]:
-    """Return all error_types from a specific artifact version (0 = first, -1 = last)."""
+    """Re-classify errors from raw strings for a specific artifact version (0 = first, -1 = last)."""
     if not artifacts:
         return []
     artifact = artifacts[version_idx]
-    return artifact.get("error_types") or []
+    errors: list[str] = artifact.get("errors") or []
+    return [_classify_error(e) for e in errors]
 
 
 def aggregate(records: list[dict]) -> dict[str, dict]:
