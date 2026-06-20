@@ -333,9 +333,13 @@ def main(args: argparse.Namespace) -> None:
         )
     print()
 
-    # Write outputs
+    # Write outputs — use the timestamp from the input filename(s) for traceability
+    # e.g. raw_20260619T093816Z.jsonl → summary_20260619T093816Z.csv
+    import re as _re
+    ts_candidates = [_re.search(r"\d{8}T\d{6}Z", p.name) for p in input_paths]
+    ts_matches = [m.group() for m in ts_candidates if m]
+    ts = min(ts_matches) if ts_matches else datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     _RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     write_csv(stats, _RESULTS_DIR / f"summary_{ts}.csv")
     write_markdown(stats, diff_stats, _RESULTS_DIR / f"summary_{ts}.md", input_paths)
 
