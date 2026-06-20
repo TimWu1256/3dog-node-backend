@@ -29,6 +29,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from evaluation.metrics import _classify_error  # type: ignore[import]
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("ablation")
 
@@ -88,26 +90,6 @@ def load_prompts(
 # ---------------------------------------------------------------------------
 # Result extraction
 # ---------------------------------------------------------------------------
-
-
-def _classify_error(msg: str) -> str:
-    """Map a raw error string to a canonical error category."""
-    if not msg:
-        return "none"
-    m = msg.lower()
-    if "__export() was never called" in m:
-        return "no_export"
-    if "timeout" in m:
-        return "timeout"
-    if "import" in m or "require" in m or "cannot use import" in m:
-        return "import_error"
-    if "is not defined" in m:
-        return "reference_error"
-    if "is not a function" in m or "is not a constructor" in m or "typeerror" in m:
-        return "type_error"
-    if "syntaxerror" in m or "unexpected token" in m or "unexpected end" in m or "has already been declared" in m:
-        return "syntax_error"
-    return "other"
 
 
 def _serialize_artifact(artifact: Any) -> dict:

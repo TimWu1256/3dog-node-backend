@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import argparse
 import csv
-import glob
 import json
 import logging
+import re
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -51,6 +51,7 @@ def _classify_error(msg: str) -> str:
     if "syntaxerror" in m or "unexpected token" in m or "unexpected end" in m or "has already been declared" in m:
         return "syntax_error"
     return "other"
+
 
 # Human-readable labels for conditions
 _CONDITION_LABELS = {
@@ -226,6 +227,11 @@ def write_markdown(
     path: Path,
     input_paths: list[Path],
 ) -> None:
+    def _fmt(etypes: dict, n: int, t: str) -> str:
+        count = etypes.get(t, 0)
+        pct = count / n * 100 if n else 0
+        return f"{count} ({pct:.0f}%)"
+
     ts = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     lines = [
         "# Ablation Study Results",
@@ -270,13 +276,9 @@ def write_markdown(
             continue
         etypes = stats[condition].get("first_pass_error_types") or {}
         n = stats[condition]["n"]
-        def _fmt(t: str) -> str:
-            count = etypes.get(t, 0)
-            pct = count / n * 100 if n else 0
-            return f"{count} ({pct:.0f}%)"
         lines.append(
             f"| **{condition}** | "
-            + " | ".join(_fmt(t) for t in _ALL_ERROR_TYPES)
+            + " | ".join(_fmt(etypes, n, t) for t in _ALL_ERROR_TYPES)
             + " |"
         )
 
@@ -355,8 +357,7 @@ def main(args: argparse.Namespace) -> None:
 
     # Write outputs — use the timestamp from the input filename(s) for traceability
     # e.g. raw_20260619T093816Z.jsonl → summary_20260619T093816Z.csv
-    import re as _re
-    ts_candidates = [_re.search(r"\d{8}T\d{6}Z", p.name) for p in input_paths]
+    ts_candidates = [re.search(r"\d{8}T\d{6}Z", p.name) for p in input_paths]
     ts_matches = [m.group() for m in ts_candidates if m]
     ts = min(ts_matches) if ts_matches else datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     _RESULTS_DIR.mkdir(parents=True, exist_ok=True)
