@@ -289,6 +289,7 @@ def write_markdown(
     sig: dict[str, float | None],
     path: Path,
     input_paths: list[Path],
+    records: list[dict] | None = None,
 ) -> None:
     def _fmt(etypes: dict, n: int, t: str) -> str:
         count = etypes.get(t, 0)
@@ -302,6 +303,42 @@ def write_markdown(
         f"Generated: {ts}  ",
         f"Input files: {', '.join(p.name for p in input_paths)}",
         "",
+        "## Experiment Configuration",
+        "",
+    ]
+
+    # Deduce experiment parameters from records
+    if records:
+        conditions = sorted(set(r["condition"] for r in records))
+        repeats = max((r.get("repeat", 0) for r in records), default=0) + 1
+        per_condition = stats.get(conditions[0], {}).get("n", "?") if conditions else "?"
+        cfg = records[0].get("config", {})
+
+        lines += [
+            f"**Conditions** (ablation targets, each N={per_condition}):  ",
+        ]
+        for cond in conditions:
+            label = _CONDITION_LABELS.get(cond, cond)
+            lines.append(f"- {cond}: {label}")
+
+        # Show config if available; fallback to graceful defaults if missing
+        lines.append("")
+        if cfg.get("model"):
+            lines.append(f"**Model**: {cfg.get('model')}")
+        if cfg.get("max_reviews") is not None:
+            lines.append(f"**Max reviews**: {cfg.get('max_reviews')}")
+        if cfg.get("batch_size") is not None:
+            lines.append(f"**Batch size**: {cfg.get('batch_size')}")
+        if cfg.get("timeout_ms") is not None:
+            lines.append(f"**Timeout**: {cfg.get('timeout_ms')} ms")
+
+        lines += [
+            f"**Repeats**: {repeats}  ",
+            f"**Total samples**: {len(records)}  ",
+            "",
+        ]
+
+    lines += [
         "## Main Results",
         "",
         "| Condition | Description | N | Error ↓ | Avg Time (s) | Approval ↑ | Sig. (p vs C0) |",
@@ -427,7 +464,7 @@ def main(args: argparse.Namespace) -> None:
     ts = min(ts_matches) if ts_matches else datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     _RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     write_csv(stats, sig, _RESULTS_DIR / f"summary_{ts}.csv")
-    write_markdown(stats, diff_stats, sig, _RESULTS_DIR / f"summary_{ts}.md", input_paths)
+    write_markdown(stats, diff_stats, sig, _RESULTS_DIR / f"summary_{ts}.md", input_paths, records)
 
     log.info("Done. Summary files in %s", _RESULTS_DIR)
 

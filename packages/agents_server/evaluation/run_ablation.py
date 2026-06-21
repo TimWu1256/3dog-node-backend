@@ -42,7 +42,7 @@ _V3_TEMPLATE = Path(__file__).resolve().parents[3] / "instructions" / "craft3d-g
 _DEFAULT_CONDITIONS = ["C0", "C1", "C2", "C3", "C4"]
 _DEFAULT_MAX_REVIEWS = 1   # no revision: review ends graph regardless of result
 _DEFAULT_BATCH_SIZE = 3    # concurrent prompts per condition (I/O bound, no monkeypatch conflict)
-_FIXED_CRAFT_MODEL = "google/gemini-3.5-flash"
+_FIXED_CRAFT_MODEL = "google/gemini-3-flash-preview"
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +113,7 @@ def _extract_result(
     repeat: int,
     final_state: dict | None,
     elapsed_s: float,
+    config: dict,
 ) -> dict:
     """Build a structured result record from the final LangGraph state."""
     artifacts = []
@@ -136,6 +137,7 @@ def _extract_result(
         job_id = final_state.get("job_id") or ""
 
     return {
+        "config": config,
         "prompt": {
             "object_name": prompt["object_name"],
             "object_description": prompt["object_description"],
@@ -166,6 +168,7 @@ async def _run_prompt(
     timeout_ms: int,
     craft3d_agent: Any,
     ObjectProps: Any,
+    config: dict,
 ) -> dict:
     """Execute craft3d_agent on one prompt. Monkeypatch must already be in place."""
     t0 = time.perf_counter()
@@ -186,7 +189,7 @@ async def _run_prompt(
     except Exception as exc:
         log.warning("Agent raised during %s/%s: %s", condition, prompt["object_name"], exc)
     elapsed = time.perf_counter() - t0
-    return _extract_result(prompt, condition, repeat, final_state, elapsed)
+    return _extract_result(prompt, condition, repeat, final_state, elapsed, config)
 
 
 async def run_condition(
@@ -199,6 +202,7 @@ async def run_condition(
     craft3d_agent: Any,
     nodes_module: Any,
     ObjectProps: Any,
+    config: dict,
 ) -> list[dict]:
     """Run all prompts for one ablation condition (monkeypatched), in batches."""
     from evaluation.prompt_variants import make_variant  # type: ignore[import]
@@ -218,7 +222,7 @@ async def run_condition(
             )
             batch_results = await asyncio.gather(
                 *[
-                    _run_prompt(p, condition, repeat, max_reviews, timeout_ms, craft3d_agent, ObjectProps)
+                    _run_prompt(p, condition, repeat, max_reviews, timeout_ms, craft3d_agent, ObjectProps, config)
                     for p in batch
                 ],
                 return_exceptions=False,
@@ -262,6 +266,15 @@ async def main(args: argparse.Namespace) -> None:
     nodes_module = _import_nodes()
     ObjectProps = _import_schemas()
 
+    # Build experiment config to store in JSONL records
+    config = {
+        "model": _FIXED_CRAFT_MODEL,
+        "max_reviews": args.max_reviews,
+        "batch_size": args.batch_size,
+        "timeout_ms": args.timeout_ms,
+        "repeats": args.repeats,
+    }
+
     timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     output_path = _RESULTS_DIR / f"raw_{timestamp}.jsonl"
     log.info("Writing results to %s", output_path)
@@ -280,6 +293,7 @@ async def main(args: argparse.Namespace) -> None:
                 craft3d_agent=craft3d_agent,
                 nodes_module=nodes_module,
                 ObjectProps=ObjectProps,
+                config=config,
             )
             all_results.extend(results)
             # Flush after each condition to preserve partial results
