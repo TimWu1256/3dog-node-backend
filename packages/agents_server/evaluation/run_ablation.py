@@ -169,6 +169,7 @@ async def _run_prompt(
     craft3d_agent: Any,
     ObjectProps: Any,
     config: dict,
+    skip_review: bool = False,
 ) -> dict:
     """Execute craft3d_agent on one prompt. Monkeypatch must already be in place."""
     t0 = time.perf_counter()
@@ -182,6 +183,7 @@ async def _run_prompt(
                 ),
                 "max_reviews": max_reviews,
                 "model": _FIXED_CRAFT_MODEL,
+                "skip_review": skip_review,
             },
             stream_mode="values",
         ):
@@ -203,6 +205,7 @@ async def run_condition(
     nodes_module: Any,
     ObjectProps: Any,
     config: dict,
+    skip_review: bool = False,
 ) -> list[dict]:
     """Run all prompts for one ablation condition (monkeypatched), in batches."""
     from evaluation.prompt_variants import make_variant  # type: ignore[import]
@@ -222,7 +225,7 @@ async def run_condition(
             )
             batch_results = await asyncio.gather(
                 *[
-                    _run_prompt(p, condition, repeat, max_reviews, timeout_ms, craft3d_agent, ObjectProps, config)
+                    _run_prompt(p, condition, repeat, max_reviews, timeout_ms, craft3d_agent, ObjectProps, config, skip_review)
                     for p in batch
                 ],
                 return_exceptions=False,
@@ -273,6 +276,7 @@ async def main(args: argparse.Namespace) -> None:
         "batch_size": args.batch_size,
         "timeout_ms": args.timeout_ms,
         "repeats": args.repeats,
+        "skip_review": args.skip_review,
     }
 
     timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -294,6 +298,7 @@ async def main(args: argparse.Namespace) -> None:
                 nodes_module=nodes_module,
                 ObjectProps=ObjectProps,
                 config=config,
+                skip_review=args.skip_review,
             )
             all_results.extend(results)
             # Flush after each condition to preserve partial results
@@ -339,6 +344,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--batch-size", type=int, default=_DEFAULT_BATCH_SIZE,
         help="Number of prompts to run concurrently within each condition.",
+    )
+    p.add_argument(
+        "--skip-review", action="store_true", default=True,
+        help="Skip the LLM visual review step. Approval metric will be omitted from results.",
     )
     return p
 

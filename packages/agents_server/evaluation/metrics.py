@@ -331,6 +331,8 @@ def write_markdown(
             lines.append(f"**Batch size**: {cfg.get('batch_size')}")
         if cfg.get("timeout_ms") is not None:
             lines.append(f"**Timeout**: {cfg.get('timeout_ms')} ms")
+        if cfg.get("skip_review"):
+            lines.append("**Review**: disabled")
 
         lines += [
             f"**Repeats**: {repeats}  ",
@@ -338,28 +340,48 @@ def write_markdown(
             "",
         ]
 
-    lines += [
-        "## Main Results",
-        "",
-        "| Condition | Description | N | Error ↓ | Avg Time (s) | Approval ↑ | Sig. (p vs C0) |",
-        "|---|---|---|---|---|---|---|",
-    ]
+    # Build main results table header dynamically based on skip_review
+    skip_review = cfg.get("skip_review", False)
+    if skip_review:
+        lines += [
+            "## Main Results",
+            "",
+            "| Condition | Description | N | Error ↓ | Avg Time (s) | Sig. (p vs C0) |",
+            "|---|---|---|---|---|---|",
+        ]
+    else:
+        lines += [
+            "## Main Results",
+            "",
+            "| Condition | Description | N | Error ↓ | Avg Time (s) | Approval ↑ | Sig. (p vs C0) |",
+            "|---|---|---|---|---|---|---|",
+        ]
 
     for condition in _ALL_CONDITIONS:
         if condition not in stats:
             continue
         s = stats[condition]
         label = _CONDITION_LABELS.get(condition, condition)
-        approval = (
-            f"{_pct(s['approval_rate'])} ({s['approved_count']}/{s['runnable_count']})"
-        )
-        lines.append(
-            f"| **{condition}** | {label} | {s['n']} "
-            f"| {_pct(s['first_pass_error_rate'])} "
-            f"| {s['avg_elapsed_s']:.1f} "
-            f"| {approval} "
-            f"| {_sig(sig.get(condition))} |"
-        )
+        error_str = f"{_pct(s['first_pass_error_rate'])} ({s['first_pass_error_count']}/{s['n']})"
+
+        if skip_review:
+            lines.append(
+                f"| **{condition}** | {label} | {s['n']} "
+                f"| {error_str} "
+                f"| {s['avg_elapsed_s']:.1f} "
+                f"| {_sig(sig.get(condition))} |"
+            )
+        else:
+            approval = (
+                f"{_pct(s['approval_rate'])} ({s['approved_count']}/{s['runnable_count']})"
+            )
+            lines.append(
+                f"| **{condition}** | {label} | {s['n']} "
+                f"| {error_str} "
+                f"| {s['avg_elapsed_s']:.1f} "
+                f"| {approval} "
+                f"| {_sig(sig.get(condition))} |"
+            )
 
     lines += [
         "",

@@ -259,6 +259,8 @@ async def render(state: Craft3DState) -> dict:
 
 
 async def review(state: Craft3DState) -> dict:
+    if state.get("skip_review"):
+        return {}
     current = get_current_artifact(state)
     if current is None:
         return {}

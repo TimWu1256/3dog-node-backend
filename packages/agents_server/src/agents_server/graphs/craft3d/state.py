@@ -118,6 +118,7 @@ class Craft3DState(TypedDict):
     max_reviews: Optional[int]             # override for MAX_REVIEWS in edges.py
     model: Optional[str]                   # override craft model name (e.g. "google/gemini-3.1-pro-preview")
     reasoning: Optional[str]               # override reasoning level: "low", "medium", "high"
+    skip_review: Optional[bool]            # if True, bypass review node and revision loop
 
 
 # ---------------------------------------------------------------------------

@@ -10,6 +10,9 @@ MAX_REVIEWS = 1
 
 
 def review_router(state: Craft3DState) -> str:
+    if state.get("skip_review"):
+        return END
+
     artifact = get_current_artifact(state)
 
     if artifact is None:
