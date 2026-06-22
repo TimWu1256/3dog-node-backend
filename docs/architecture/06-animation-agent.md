@@ -84,8 +84,8 @@ MoveWorld(Transform target, Vector3 offset, float seconds)
 RotateLocal(Transform target, Vector3 eulerOffset, float seconds)
 SwingLocal(Transform target, Vector3 eulerAmplitude, float seconds, float cycles)
 ScaleLocal(Transform target, Vector3 scaleMultiplier, float seconds)
-PlayEffect(Transform emitter, string effectType, float rangeMeters, float intensity, float seconds)
-FireBreath(Transform emitter, float rangeMeters, float seconds, float headSwingDegrees, Transform swingTarget)
+<!-- PlayEffect(Transform emitter, string effectType, float rangeMeters, float intensity, float seconds)
+FireBreath(Transform emitter, float rangeMeters, float seconds, float headSwingDegrees, Transform swingTarget) -->
 Sequence(params IEnumerator[] actions)
 ParallelWaitAll(params IEnumerator[] actions)
 Repeat(int count, Func<IEnumerator> actionFactory)
@@ -95,7 +95,7 @@ Loop(Func<IEnumerator> actionFactory)
 The base class still forwards these to the underlying `PlannerAnimationActions` /
 `PlannerTimeline` static methods, so fully-qualified calls keep compiling too.
 
-Valid `effectType` values: `fire`, `beam`, `explosion`, `trail`, `smoke`, `sparks`, `shockwave`, `poison`, `ice`, `electric`, `magic`, `dust`.
+<!-- Valid `effectType` values: `fire`, `beam`, `explosion`, `trail`, `smoke`, `sparks`, `shockwave`, `poison`, `ice`, `electric`, `magic`, `dust`. -->
 
 Method units:
 

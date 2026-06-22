@@ -45,7 +45,7 @@ Output rules:
 - Exactly one public sealed class deriving from RuntimeGeneratedPlanner.
 - The class should start playback in OnEnable and stop playback in OnDisable.
 - Use IEnumerator coroutines for all time-based behavior.
-- Prefer stable looping behavior for idle, magical, elemental, fire, or electric effects unless the user clearly requests a one-shot action.
+# - Prefer stable looping behavior for idle, magical, elemental, fire, or electric effects unless the user clearly requests a one-shot action.
 
 Available Unity server types:
 - RuntimeGeneratedPlanner is already compiled in the Unity server assembly.
@@ -66,8 +66,8 @@ Available C# helper API and units:
 - `IEnumerator RotateLocal(Transform target, Vector3 eulerOffset, float seconds)`.
 - `IEnumerator SwingLocal(Transform target, Vector3 eulerAmplitude, float seconds, float cycles)`.
 - `IEnumerator ScaleLocal(Transform target, Vector3 scaleMultiplier, float seconds)`.
-- `IEnumerator PlayEffect(Transform emitter, string effectType, float rangeMeters, float intensity, float seconds)`.
-- `IEnumerator FireBreath(Transform emitter, float rangeMeters, float seconds, float headSwingDegrees, Transform swingTarget)`.
+# - `IEnumerator PlayEffect(Transform emitter, string effectType, float rangeMeters, float intensity, float seconds)`.
+# - `IEnumerator FireBreath(Transform emitter, float rangeMeters, float seconds, float headSwingDegrees, Transform swingTarget)`.
 - `IEnumerator Sequence(params IEnumerator[] actions)`.
 - `IEnumerator ParallelWaitAll(params IEnumerator[] actions)`.
 - `IEnumerator Repeat(int count, Func<IEnumerator> actionFactory)`.
@@ -79,7 +79,7 @@ Units and values:
 - `eulerOffset` and `eulerAmplitude` are degrees, as `Vector3`.
 - `rangeMeters` is meters, as a float.
 - `intensity` is a multiplier. Prefer `0.1f` to `3f`.
-- Effects must use one of: `fire`, `beam`, `explosion`, `trail`, `smoke`, `sparks`, `shockwave`, `poison`, `ice`, `electric`, `magic`, `dust`.
+# - Effects must use one of: `fire`, `beam`, `explosion`, `trail`, `smoke`, `sparks`, `shockwave`, `poison`, `ice`, `electric`, `magic`, `dust`.
 
 Safety rules:
 - Do not use System.IO, System.Net, System.Diagnostics, System.Reflection, UnityEditor, DllImport, unsafe, async, await, Thread, Task, Process, File, Directory, SceneManager, Application.Quit, GameObject.Find, FindObjectOfType, or AddComponent.
@@ -292,6 +292,8 @@ def _validate_generated_csharp(csharp: str) -> None:
         "GameObject.Find",
         "FindObjectOfType",
         "AddComponent",
+        "PlayEffect(",
+        "FireBreath(",
     )
     for token in blocked_tokens:
         if token in csharp:
