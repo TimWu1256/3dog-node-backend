@@ -186,6 +186,8 @@ async def invoke_animation_agent_node(state: OrchestratorState) -> dict:
 
     if result.csharp_url:
         subagent_result["csharp_url"] = result.csharp_url
+    if result.failure_reason:
+        subagent_result["failure_reason"] = result.failure_reason
 
     log.info(
         "orchestrator: animation agent finished success=%s job_id=%s class=%s",
