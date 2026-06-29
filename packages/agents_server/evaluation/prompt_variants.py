@@ -68,7 +68,9 @@ def _apply_condition(raw: str, condition: str) -> str:
         return _remove_rules(raw, _RULE_5, _RULE_7)
     if condition == "C4":
         return _remove_rule7(raw)
-    raise ValueError(f"Unknown ablation condition: {condition!r}. Valid: C0, C1, C2, C3, C4")
+    if condition == "C5":
+        return _remove_strict_section(raw)
+    raise ValueError(f"Unknown ablation condition: {condition!r}. Valid: C0, C1, C2, C3, C4, C5")
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +95,14 @@ def _remove_rules(raw: str, start_marker: str, end_marker: str) -> str:
     ls = _split(raw)
     start = _find(ls, start_marker)
     end = _find(ls, end_marker)
+    return "".join(ls[:start] + ls[end:])
+
+
+def _remove_strict_section(raw: str) -> str:
+    """C5: Remove the entire STRICT CONSTRAINTS section (header + all 7 rules)."""
+    ls = _split(raw)
+    start = _find(ls, _STRICT_CONSTRAINTS)
+    end = _find(ls, _AESTHETIC_GUIDELINES)
     return "".join(ls[:start] + ls[end:])
 
 

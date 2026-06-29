@@ -28,7 +28,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 _HERE = Path(__file__).parent
 _RESULTS_DIR = _HERE / "results"
 
-_ALL_CONDITIONS = ["C0", "C1", "C2", "C3", "C4"]
+_ALL_CONDITIONS = ["C0", "C1", "C2", "C3", "C4", "C5"]
 _ALL_ERROR_TYPES = [
     "import_error", "reference_error", "type_error", "syntax_error",
     "range_error", "no_export", "no_code", "timeout", "other",
@@ -134,6 +134,7 @@ _CONDITION_TARGET_VIOLATION: dict[str, str | None] = {
     "C2": "forbidden_api",
     "C3": "naming",
     "C4": None,
+    "C5": None,  # removes all rules — not a single-target condition
 }
 _VIOLATION_LABELS = {
     "sandbox": "imports / DOM access",
@@ -150,6 +151,7 @@ _CONDITION_LABELS = {
     "C2": "w/o Forbidden APIs (rules 3-4: NO ASSETS, NO CONTROLS)",
     "C3": "w/o Procedural craft (rules 5-6: TEXTURES, SEMANTIC NAMES)",
     "C4": "w/o Hallucination guard (rule 7: NO INVENTED METHODS)",
+    "C5": "No constraints (full ablation)",
 }
 
 
@@ -214,6 +216,40 @@ def _sig(p: float | None) -> str:
         return "—"
     mark = "***" if p < 0.01 else "**" if p < 0.05 else "*" if p < 0.1 else "ns"
     return f"{p:.3f} ({mark})"
+
+
+# ---------------------------------------------------------------------------
+# Statistical power analysis (simulation-based, no external dependencies)
+# ---------------------------------------------------------------------------
+
+_POWER_CURVE_NS = [25, 50, 75, 100, 150, 200, 300, 500]
+
+
+def _simulate_power(
+    p0: float, p1: float, n: int,
+    n_sim: int = 5000, alpha: float = 0.05, seed: int = 42,
+) -> float:
+    """Simulate two-proportions Fisher test power at a given N per group.
+
+    p0 = C0 error rate (lower), p1 = C5 error rate (higher).
+    Returns the fraction of simulations where Fisher p < alpha.
+    Uses only stdlib random — no numpy/scipy dependency.
+    """
+    from random import Random
+    rng = Random(seed)
+    hits = 0
+    for _ in range(n_sim):
+        a = sum(1 for _ in range(n) if rng.random() < p1)   # C5 errors
+        c = sum(1 for _ in range(n) if rng.random() < p0)   # C0 errors
+        p = _fisher_two_tailed(a, n - a, c, n - c)
+        if p < alpha:
+            hits += 1
+    return hits / n_sim
+
+
+def _power_curve(p0: float, p1: float) -> list[tuple[int, float]]:
+    """Return [(n, power), ...] for each candidate N in _POWER_CURVE_NS."""
+    return [(n, _simulate_power(p0, p1, n)) for n in _POWER_CURVE_NS]
 
 
 # ---------------------------------------------------------------------------
@@ -599,6 +635,42 @@ def write_markdown(
                     f"| {_pct(d['first_pass_error_rate'])} |"
                 )
             lines.append("")
+
+    # Power Analysis — only when both C0 and C5 are present in the dataset.
+    if "C0" in stats and "C5" in stats:
+        s0 = stats["C0"]
+        s5 = stats["C5"]
+        p0 = s0["first_pass_error_rate"]
+        p5 = s5["first_pass_error_rate"]
+        n_current = s0["n"]
+
+        log.info("Computing power curve for C0(%.1f%%) vs C5(%.1f%%) ...", p0 * 100, p5 * 100)
+        curve = _power_curve(p0, p5)
+
+        min_n_80 = next((n for n, pw in curve if pw >= 0.80), None)
+        repeats_per_50 = f"{min_n_80 // 50} repeats" if min_n_80 else "500+ samples"
+
+        lines += [
+            "",
+            "## Power Analysis: C0 vs C5",
+            "",
+            f"Observed error rates — C0: **{_pct(p0)}** ({s0['first_pass_error_count']}/{s0['n']}), "
+            f"C5: **{_pct(p5)}** ({s5['first_pass_error_count']}/{s5['n']})",
+            "",
+            "| N / condition | Simulated power (α=0.05, two-tailed Fisher) |",
+            "|---|---|",
+        ]
+        for n, pw in curve:
+            marker = " ← **current run**" if n == n_current else ""
+            bold = "**" if n == n_current else ""
+            lines.append(f"| {bold}{n}{bold} | {bold}{pw * 100:.1f}%{bold}{marker} |")
+
+        lines += [
+            "",
+            f"> Simulation: 5,000 draws per cell, fixed seed=42.  ",
+            f"> **80% power requires N ≥ {min_n_80 if min_n_80 else '500+'} per condition "
+            f"(= {repeats_per_50} with the 50-prompt dataset).**",
+        ]
 
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     log.info("Markdown written: %s", path)
