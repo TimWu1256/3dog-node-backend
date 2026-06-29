@@ -37,7 +37,10 @@ log = logging.getLogger("ablation")
 _HERE = Path(__file__).parent
 _PROMPTS_FILE = _HERE / "prompts.jsonl"
 _RESULTS_DIR = _HERE / "results"
-_V3_TEMPLATE = Path(__file__).resolve().parents[3] / "instructions" / "craft3d-generation-v3.md"
+_INSTRUCTIONS_DIR = Path(__file__).resolve().parents[3] / "instructions"
+# Ablation runs on the deconflicted template so each constraint appears exactly
+# once (in STRICT CONSTRAINTS); the production path still uses craft3d-generation-v3.
+_DEFAULT_TEMPLATE = _INSTRUCTIONS_DIR / "craft3d-generation-v3-deconflict.md"
 
 _DEFAULT_CONDITIONS = ["C0", "C1", "C2", "C3", "C4"]
 _DEFAULT_MAX_REVIEWS = 1   # no revision: review ends graph regardless of result
@@ -102,6 +105,7 @@ def _serialize_artifact(artifact: Any) -> dict:
         "has_error": len(errors) > 0,
         "errors": errors,
         "error_types": error_types,
+        "code": artifact.code,  # stored for offline constraint-violation analysis
         "review_approved": review.approved if review else None,
         "review_comment": (review.comment[:500] if review else None),  # truncate for storage
     }
@@ -205,12 +209,13 @@ async def run_condition(
     nodes_module: Any,
     ObjectProps: Any,
     config: dict,
+    template_path: Path,
     skip_review: bool = False,
 ) -> list[dict]:
     """Run all prompts for one ablation condition (monkeypatched), in batches."""
     from evaluation.prompt_variants import make_variant  # type: ignore[import]
 
-    variant_fn = make_variant(condition, _V3_TEMPLATE)
+    variant_fn = make_variant(condition, template_path)
     original_fn = nodes_module._render_generation_prompt
     nodes_module._render_generation_prompt = variant_fn
     log.info("[%s] monkeypatched _render_generation_prompt", condition)
@@ -277,6 +282,7 @@ async def main(args: argparse.Namespace) -> None:
         "timeout_ms": args.timeout_ms,
         "repeats": args.repeats,
         "skip_review": args.skip_review,
+        "template": Path(args.template).name,
     }
 
     timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -298,6 +304,7 @@ async def main(args: argparse.Namespace) -> None:
                 nodes_module=nodes_module,
                 ObjectProps=ObjectProps,
                 config=config,
+                template_path=Path(args.template),
                 skip_review=args.skip_review,
             )
             all_results.extend(results)
@@ -348,6 +355,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--skip-review", action="store_true", default=True,
         help="Skip the LLM visual review step. Approval metric will be omitted from results.",
+    )
+    p.add_argument(
+        "--template", default=str(_DEFAULT_TEMPLATE),
+        help="Prompt template the ablation variants are derived from. "
+             "Defaults to the deconflicted v3 (each constraint stated once).",
     )
     return p
 

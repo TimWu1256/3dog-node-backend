@@ -61,6 +61,88 @@ def _classify_error(msg: str) -> str:
     return "other"
 
 
+# ---------------------------------------------------------------------------
+# Constraint-violation detection (static scan of generated code)
+#
+# Each ablation condition removes a rule group from the prompt. The most
+# sensitive way to measure a rule's effect is to scan the *generated code* for
+# the construct it forbids — many violations (DOM access silently ignored by the
+# sandbox, generic node names, stripped imports) never crash, so they are
+# invisible to execution-error rate but detectable statically.
+# ---------------------------------------------------------------------------
+
+# Object3D subclasses whose instances must receive a semantic .name (rule 6).
+_OBJECT3D_CTORS = (
+    "Mesh", "Group", "Points", "InstancedMesh", "SkinnedMesh",
+    "Sprite", "Line", "LineSegments", "PerspectiveCamera",
+    "OrthographicCamera", "DirectionalLight", "PointLight", "SpotLight",
+)
+
+_RE_OBJECT3D_NEW = re.compile(
+    r"new\s+THREE\.(?:" + "|".join(_OBJECT3D_CTORS) + r")\b"
+)
+_RE_NAME_ASSIGN = re.compile(r"\.name\s*=")
+_RE_GENERIC_NAME = re.compile(
+    r"""\.name\s*=\s*["'](?:mesh|group|object|node|line|points|sprite|"""
+    r"""object_?\d+|group_?\d+|node_?\d+|mesh_?\d+)\d*["']""",
+    re.IGNORECASE,
+)
+
+_RE_SANDBOX = re.compile(
+    r"""(?:^|\n)\s*import\s|[^.\w]require\s*\(|\bdocument\.|\bwindow\.|"""
+    r"""\bnew\s+Image\s*\(|\bnew\s+Blob\s*\(|\bHTMLCanvasElement\b|"""
+    r"""\bdocument\b\s*\[""",
+)
+_RE_FORBIDDEN_API = re.compile(
+    r"""\bTextureLoader\b|\bGLTFLoader\b|\bFileLoader\b|\bImageLoader\b|"""
+    r"""\bOrbitControls\b|https?://""",
+)
+_RE_IMAGE_TEXTURE = re.compile(
+    r"""\bTextureLoader\b|\bCanvasTexture\b|\bImageLoader\b|\.map\s*="""
+)
+
+
+def detect_violations(code: str | None) -> dict[str, bool]:
+    """Statically scan generated code for each constraint group's forbidden construct.
+
+    Returns boolean flags keyed by violation category. An empty/missing code
+    string yields all-False (no signal) — callers treat that separately from n/a.
+    """
+    if not code:
+        return {"sandbox": False, "forbidden_api": False, "image_texture": False, "naming": False}
+
+    n_objects = len(_RE_OBJECT3D_NEW.findall(code))
+    n_names = len(_RE_NAME_ASSIGN.findall(code))
+    # naming violation: created nodes left unnamed, OR any generic name used.
+    naming = (n_objects > n_names) or bool(_RE_GENERIC_NAME.search(code))
+
+    return {
+        "sandbox": bool(_RE_SANDBOX.search(code)),
+        "forbidden_api": bool(_RE_FORBIDDEN_API.search(code)),
+        "image_texture": bool(_RE_IMAGE_TEXTURE.search(code)),
+        "naming": naming,
+    }
+
+
+# Maps each ablation condition to the violation category its removed rule targets.
+# C0 is the baseline; C4 (invented methods) has no static detector — its effect
+# is read from the runtime reference_error/type_error proxy instead.
+_VIOLATION_CATEGORIES = ["sandbox", "forbidden_api", "image_texture", "naming"]
+_CONDITION_TARGET_VIOLATION: dict[str, str | None] = {
+    "C0": None,
+    "C1": "sandbox",
+    "C2": "forbidden_api",
+    "C3": "naming",
+    "C4": None,
+}
+_VIOLATION_LABELS = {
+    "sandbox": "imports / DOM access",
+    "forbidden_api": "loaders / OrbitControls / URLs",
+    "image_texture": "image-based textures",
+    "naming": "missing / generic node names",
+}
+
+
 # Human-readable labels for conditions
 _CONDITION_LABELS = {
     "C0": "Full prompt (baseline)",
@@ -103,6 +185,26 @@ def _significance_vs_baseline(
             continue
         ec, nc = s["first_pass_error_count"], s["n"]
         out[cond] = _fisher_two_tailed(ec, nc - ec, e0, n0 - e0)
+    return out
+
+
+def _significance_violation_vs_baseline(
+    stats: dict[str, dict], baseline: str = "C0"
+) -> dict[str, float | None]:
+    """p-value of each condition's *target* violation count vs the baseline's
+    count for the same category. None when the condition has no target category."""
+    if baseline not in stats:
+        return {}
+    b = stats[baseline]
+    out: dict[str, float | None] = {}
+    for cond, s in stats.items():
+        cat = _CONDITION_TARGET_VIOLATION.get(cond)
+        if cat is None or s.get("code_count", 0) == 0 or b.get("code_count", 0) == 0:
+            out[cond] = None
+            continue
+        vc, nc = s["violation_counts"].get(cat, 0), s["code_count"]
+        v0, n0 = b["violation_counts"].get(cat, 0), b["code_count"]
+        out[cond] = _fisher_two_tailed(vc, nc - vc, v0, n0 - v0)
     return out
 
 
@@ -185,6 +287,21 @@ def aggregate(records: list[dict]) -> dict[str, dict]:
             for t in types:
                 first_type_counts[t] += 1
 
+        # Constraint-violation counts on the first-pass (v1) generated code.
+        # code_count tracks how many records actually carry code, so old JSONL
+        # (no "code" field) can be reported as n/a rather than 0%.
+        violation_counts: dict[str, int] = defaultdict(int)
+        code_count = 0
+        for r in items:
+            arts = r.get("artifacts") or []
+            code = arts[0].get("code") if arts else None
+            if not code:
+                continue
+            code_count += 1
+            for cat, hit in detect_violations(code).items():
+                if hit:
+                    violation_counts[cat] += 1
+
         # Runnable = models whose final artifact has no execution error.
         # Approval rate is computed over runnable models (decoupled from Error),
         # so a low error count doesn't inflate the quality proxy.
@@ -201,6 +318,8 @@ def aggregate(records: list[dict]) -> dict[str, dict]:
             "first_pass_error_count": first_pass_errors,
             "final_error_count": final_errors,
             "first_pass_error_types": dict(first_type_counts),
+            "violation_counts": dict(violation_counts),
+            "code_count": code_count,
         }
 
     return results
@@ -243,7 +362,9 @@ def write_csv(stats: dict[str, dict], sig: dict[str, float | None], path: Path) 
         "first_pass_error_rate", "final_error_rate", "sig_p_vs_c0",
         "avg_revisions", "avg_elapsed_s",
         "approval_rate", "approved_count", "runnable_count",
-    ] + [f"first_err_{t}" for t in _ALL_ERROR_TYPES]
+        "code_count",
+    ] + [f"first_err_{t}" for t in _ALL_ERROR_TYPES] \
+      + [f"violation_{c}" for c in _VIOLATION_CATEGORIES]
 
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
@@ -269,6 +390,10 @@ def write_csv(stats: dict[str, dict], sig: dict[str, float | None], path: Path) 
             etypes = s.get("first_pass_error_types") or {}
             for t in _ALL_ERROR_TYPES:
                 row[f"first_err_{t}"] = etypes.get(t, 0)
+            row["code_count"] = s.get("code_count", 0)
+            vcounts = s.get("violation_counts") or {}
+            for c in _VIOLATION_CATEGORIES:
+                row[f"violation_{c}"] = vcounts.get(c, 0)
             writer.writerow(row)
 
     log.info("CSV written: %s", path)
@@ -325,6 +450,8 @@ def write_markdown(
         lines.append("")
         if cfg.get("model"):
             lines.append(f"**Model**: {cfg.get('model')}")
+        if cfg.get("template"):
+            lines.append(f"**Template**: {cfg.get('template')}")
         if cfg.get("max_reviews") is not None:
             lines.append(f"**Max reviews**: {cfg.get('max_reviews')}")
         if cfg.get("batch_size") is not None:
@@ -337,6 +464,46 @@ def write_markdown(
         lines += [
             f"**Repeats**: {repeats}  ",
             f"**Total samples**: {len(records)}  ",
+            "",
+        ]
+
+    # Constraint Adherence — headline table. For each ablated condition, the
+    # violation rate of the rule group it removed, head-to-head against C0.
+    baseline_codes = stats.get("C0", {}).get("code_count", 0)
+    vsig = _significance_violation_vs_baseline(stats)
+    if baseline_codes:
+        b = stats["C0"]
+        lines += [
+            "## Constraint Adherence (primary)",
+            "",
+            "| Condition | Removed rule (target) | Violation@C0 | Violation@removed | Δ | Sig. |",
+            "|---|---|---|---|---|---|",
+        ]
+        for condition in _ALL_CONDITIONS:
+            cat = _CONDITION_TARGET_VIOLATION.get(condition)
+            if condition not in stats or cat is None:
+                continue
+            s = stats[condition]
+            nc = s.get("code_count", 0)
+            if not nc:
+                continue
+            vc = s["violation_counts"].get(cat, 0)
+            v0 = b["violation_counts"].get(cat, 0)
+            r0 = v0 / baseline_codes
+            rc = vc / nc
+            lines.append(
+                f"| **{condition}** | {_VIOLATION_LABELS.get(cat, cat)} "
+                f"| {_pct(r0)} ({v0}/{baseline_codes}) "
+                f"| {_pct(rc)} ({vc}/{nc}) "
+                f"| {(rc - r0) * 100:+.1f}pp "
+                f"| {_sig(vsig.get(condition))} |"
+            )
+        lines += [
+            "",
+            "> **Violation**: % of first-pass generated code statically containing the construct the removed rule forbids.  ",
+            "> Measured on code (not execution), so it captures violations that never crash (e.g. generic node names, ignored DOM access).  ",
+            "> **C4** (NO INVENTED METHODS) has no static detector; read its effect from `reference_error`/`type_error` in the Error Type Breakdown.  ",
+            "> **Sig.**: two-tailed Fisher exact p-value of the target violation count vs C0.",
             "",
         ]
 
